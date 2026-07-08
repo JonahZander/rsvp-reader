@@ -14,6 +14,7 @@ import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.jonahzander.rsvpreader.ReaderApplication
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
+import com.jonahzander.rsvpreader.sync.DataLayerImport
 import kotlinx.coroutines.launch
 
 @Composable
@@ -21,7 +22,10 @@ fun WearApp(app: ReaderApplication) {
     val navController = rememberSwipeDismissableNavController()
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) { app.bookRepository.refresh() }
+    LaunchedEffect(Unit) {
+        app.bookRepository.refresh()
+        DataLayerImport.importAll(app, app.bookRepository, app.progressStore)
+    }
     val books by app.bookRepository.books.collectAsStateWithLifecycle()
     val settings by app.progressStore.settings.collectAsStateWithLifecycle(ReaderSettings())
 

@@ -1,0 +1,19 @@
+{
+  "id": "sample-welcome",
+  "title": "Welcome to RSVP Reader",
+  "author": "RSVP Reader",
+  "chapters": [
+    {
+      "title": "How it works",
+      "text": "Welcome to RSVP Reader on your watch. Words appear one at a time at a speed you control. Keep your eyes on the highlighted letter and let the words come to you. Tap the screen to pause or resume at any moment."
+    },
+    {
+      "title": "Controls",
+      "text": "While playing, turn the crown to change your reading speed. While paused, turn the crown to step backwards or forwards through the text. Your position is saved automatically, so you can leave and come back whenever you like."
+    },
+    {
+      "title": "Adding books",
+      "text": "Install the companion app on your phone to send more reading material to your watch. You can share any text from another app, paste something directly, or import a whole EPUB book. Everything syncs over automatically."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "sample-practice",
+  "title": "A Short Practice Story",
+  "author": "RSVP Reader",
+  "chapters": [
+    {
+      "title": "The Lighthouse",
+      "text": "The keeper climbed the spiral stairs each evening as the sun dropped into the sea. One hundred and twelve steps, and he knew every one by heart. At the top he lit the great lamp and watched its beam sweep across the darkening water. Ships he would never meet steered safely home because a light he tended told them where the rocks were waiting. He liked that thought. It made the lonely evenings feel like conversations."
+    },
+    {
+      "title": "The Storm",
+      "text": "On the third night of October a storm came in from the northwest, fast and loud. Rain hammered the glass and the tower hummed in the wind. The keeper stayed beside his lamp, trimming and adjusting, until the gray morning finally arrived. Far out on the water a small fishing boat blinked its lantern three times. Thank you, it said. The keeper blinked his great light once in return, then went down the spiral stairs to sleep."
+    }
+  ]
+}

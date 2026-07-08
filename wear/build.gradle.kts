@@ -57,4 +57,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.datastore.preferences.core)
 }

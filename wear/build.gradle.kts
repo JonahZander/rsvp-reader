@@ -12,7 +12,9 @@ android {
     defaultConfig {
         applicationId = "com.jonahzander.rsvpreader"
         minSdk = 30
-        targetSdk = 35
+        // 34: Wear Compose 1.4 reads the reduce_motion setting, which is
+        // inaccessible to apps targeting 35+ (SecurityException on launch)
+        targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
     }

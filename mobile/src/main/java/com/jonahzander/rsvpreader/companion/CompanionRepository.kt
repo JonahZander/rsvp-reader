@@ -52,7 +52,9 @@ class CompanionRepository(
     suspend fun addBook(book: Book) = withContext(Dispatchers.IO) {
         storage.save(book)
         refresh()
-        sender.sendBook(book)
+        // Sync is best-effort: the local library must work even when
+        // Play Services or the watch is unavailable.
+        runCatching { sender.sendBook(book) }
     }
 
     suspend fun addText(title: String, text: String) {
@@ -68,7 +70,7 @@ class CompanionRepository(
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
         storage.delete(id)
         refresh()
-        sender.deleteBook(id)
+        runCatching { sender.deleteBook(id) }
     }
 
     suspend fun setWpm(wpm: Int) {

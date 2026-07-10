@@ -23,9 +23,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,7 +90,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     val density = LocalDensity.current
-    val rotary = remember { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
+    val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
 
     Box(
         Modifier
@@ -98,7 +98,9 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             .onRotaryScrollEvent { event ->
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    repeat(kotlin.math.abs(steps)) {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                     if (state.isPlaying) {
                         session.adjustWpm(steps * 10)
                         showOverlay("${session.state.value.wpm} wpm")

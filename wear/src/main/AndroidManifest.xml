@@ -44,5 +44,18 @@
                     android:pathPrefix="/settings" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".tile.ContinueReadingTileService"
+            android:exported="true"
+            android:label="@string/tile_continue_reading"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data
+                android:name="androidx.wear.tiles.PREVIEW"
+                android:resource="@mipmap/ic_launcher" />
+        </service>
     </application>
 </manifest>

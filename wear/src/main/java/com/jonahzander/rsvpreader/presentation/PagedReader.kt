@@ -76,19 +76,25 @@ fun PagedReader(
     var pages by remember(text, style) { mutableStateOf<List<Page>?>(null) }
     var pageIndex by remember(text, style) { mutableIntStateOf(0) }
 
-    fun goTo(target: Int) {
-        val p = pages ?: return
-        when {
-            target > p.lastIndex ->
-                if (state.chapterIndex + 1 < session.chapterCount) {
-                    session.jumpToChapter(state.chapterIndex + 1)
-                }
-            target < 0 ->
-                if (state.chapterIndex > 0) session.jumpToChapter(state.chapterIndex - 1)
+    /** Turn to [target], crossing chapters past either end; true if anything moved. */
+    fun goTo(target: Int): Boolean {
+        val p = pages ?: return false
+        return when {
+            target > p.lastIndex -> {
+                val hasNext = state.chapterIndex + 1 < session.chapterCount
+                if (hasNext) session.jumpToChapter(state.chapterIndex + 1)
+                hasNext
+            }
+            target < 0 -> {
+                val hasPrevious = state.chapterIndex > 0
+                if (hasPrevious) session.jumpToChapter(state.chapterIndex - 1)
+                hasPrevious
+            }
             else -> {
                 pageIndex = target
                 session.jumpToWord(p[target].startWord)
                 session.persistPosition()
+                true
             }
         }
     }
@@ -110,28 +116,25 @@ fun PagedReader(
             .onRotaryScrollEvent { event ->
                 if (chromeOpen()) return@onRotaryScrollEvent true
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
-                if (steps != 0) {
+                if (steps != 0 && goTo(pageIndex + steps.coerceIn(-1, 1))) {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    goTo(pageIndex + steps.coerceIn(-1, 1))
                 }
                 true
             }
             .focusRequester(focusRequester)
             .focusable()
-            .pointerInput(Unit) {
+            // Keyed like the pages/pageIndex remembers, so a chapter or style
+            // change re-captures goTo — otherwise the tap handler would keep
+            // writing to the previous chapter's dead state objects.
+            .pointerInput(text, style) {
                 detectTapGestures { offset ->
                     if (chromeOpen()) return@detectTapGestures
-                    when {
-                        offset.x > size.width * 0.6f -> {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            goTo(pageIndex + 1)
-                        }
-                        offset.x < size.width * 0.4f -> {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            goTo(pageIndex - 1)
-                        }
-                        // Center tap: no-op.
+                    val turned = when {
+                        offset.x > size.width * 0.6f -> goTo(pageIndex + 1)
+                        offset.x < size.width * 0.4f -> goTo(pageIndex - 1)
+                        else -> false // Center tap: no-op.
                     }
+                    if (turned) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             },
         contentAlignment = Alignment.Center,

@@ -61,6 +61,7 @@ class ReaderSessionTest {
         assertEquals("one", s.word)
         assertEquals("First", s.chapterTitle)
         assertEquals(3, s.chapterWordCount)
+        assertEquals(2, session.chapterCount)
         assertFalse(s.isPlaying)
     }
 

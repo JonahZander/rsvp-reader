@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -245,7 +246,7 @@ private fun ReaderContent(
                         scope.launch {
                             val target = (centeredItemIndex(scrubListState) + steps)
                                 .coerceIn(0, (chapterWords.size - 1).coerceAtLeast(0))
-                            scrubListState.centerOnWord(target)
+                            scrubListState.animateCenterOnWord(target)
                         }
                         showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
                     } else {
@@ -490,6 +491,18 @@ private suspend fun LazyListState.centerOnWord(index: Int) {
     val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
     val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
     scrollBy(item.offset + item.size / 2f - center)
+}
+
+/** Like [centerOnWord] but glides instead of jumping — used for rotary steps. */
+private suspend fun LazyListState.animateCenterOnWord(index: Int) {
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (item != null) {
+        val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+        animateScrollBy(item.offset + item.size / 2f - center)
+    } else {
+        // Target is off-screen (shouldn't happen for ±1 rotary steps); jump instead.
+        centerOnWord(index)
+    }
 }
 
 @Composable

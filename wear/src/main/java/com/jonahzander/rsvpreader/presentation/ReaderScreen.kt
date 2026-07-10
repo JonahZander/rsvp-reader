@@ -1,16 +1,20 @@
 package com.jonahzander.rsvpreader.presentation
 
 import android.os.SystemClock
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,11 +41,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
+import androidx.wear.compose.material.InlineSlider
+import androidx.wear.compose.material.InlineSliderDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RotaryAccumulator
 import com.jonahzander.rsvpreader.core.ScrubMapper
+import kotlin.math.roundToInt
 
 private val OrpColor = Color(0xFFE5484D)
 
@@ -101,6 +110,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
     var scrubbing by remember { mutableStateOf(false) }
     var dragDisplacement by remember { mutableFloatStateOf(0f) }
     var lastFrameMs by remember { mutableLongStateOf(0L) }
+    var showSeekSheet by remember { mutableStateOf(false) }
 
     Box(
         Modifier
@@ -143,6 +153,17 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                     },
                     onDragEnd = { scrubbing = false },
                     onDragCancel = { scrubbing = false },
+                )
+            }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        if (dragAmount < -20f) { // decisive upward swipe
+                            change.consume()
+                            session.pause()
+                            showSeekSheet = true
+                        }
+                    },
                 )
             }
             .clickable {
@@ -190,6 +211,15 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                 style = MaterialTheme.typography.caption1,
                 color = MaterialTheme.colors.primary,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+            )
+        }
+
+        if (showSeekSheet) {
+            SeekSheet(
+                wordIndex = state.wordIndex,
+                wordCount = state.chapterWordCount,
+                onSeek = { fraction -> session.seekToFraction(fraction) },
+                onDismiss = { showSeekSheet = false },
             )
         }
     }
@@ -266,6 +296,58 @@ private fun ScrubRibbon(session: ReaderSession, font: String) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             neighbors.drop(center + 1).forEach { NeighborText(it) }
+        }
+    }
+}
+
+@Composable
+private fun SeekSheet(
+    wordIndex: Int,
+    wordCount: Int,
+    onSeek: (Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val initial = if (wordCount <= 1) 0f else wordIndex.toFloat() / (wordCount - 1)
+    var fraction by remember { mutableFloatStateOf(initial) }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colors.background)
+            .clickable(enabled = false) {}, // swallow taps under the sheet
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("${(fraction * 100).roundToInt()} %", style = MaterialTheme.typography.title2)
+        Text(
+            "word ${((fraction * (wordCount - 1).coerceAtLeast(0)).roundToInt() + 1)} of $wordCount",
+            style = MaterialTheme.typography.caption2,
+            color = MaterialTheme.colors.onSurfaceVariant,
+        )
+        InlineSlider(
+            value = fraction,
+            onValueChange = { fraction = it },
+            valueRange = 0f..1f,
+            steps = 19, // 5% increments
+            decreaseIcon = { Text("−") },
+            increaseIcon = { Text("+") },
+            colors = InlineSliderDefaults.colors(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+        )
+        Row {
+            Chip(
+                onClick = onDismiss,
+                label = { Text("Cancel") },
+                colors = ChipDefaults.secondaryChipColors(),
+            )
+            Spacer(Modifier.width(8.dp))
+            Chip(
+                onClick = {
+                    onSeek(fraction.toDouble())
+                    onDismiss()
+                },
+                label = { Text("Go") },
+                colors = ChipDefaults.primaryChipColors(),
+            )
         }
     }
 }

@@ -1,10 +1,13 @@
 package com.jonahzander.rsvpreader.presentation
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,12 +26,14 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
@@ -52,6 +57,7 @@ import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RotaryAccumulator
 import com.jonahzander.rsvpreader.core.ScrubMapper
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private val OrpColor = Color(0xFFE5484D)
 
@@ -106,18 +112,59 @@ private fun ReaderContent(session: ReaderSession, font: String) {
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
     val scrubMapper = remember(density) { ScrubMapper(deadZonePx = with(density) { 12.dp.toPx() }, gain = 0.002f) }
+
+    // Scrub mode is sticky: entered by long-press, left only by a tap (which resumes reading).
     var scrubbing by remember { mutableStateOf(false) }
+    // True while the finger that entered scrub mode is still down, so its release isn't a "tap".
+    var longPressGestureActive by remember { mutableStateOf(false) }
     var dragDisplacement by remember { mutableFloatStateOf(0f) }
     var lastFrameMs by remember { mutableLongStateOf(0L) }
-    var showSeekSheet by remember { mutableStateOf(false) }
+
+    // Seek sheet slides with the finger: offset fraction 1 = hidden below, 0 = fully open.
+    var sheetVisible by remember { mutableStateOf(false) }
+    val sheetOffset = remember { Animatable(1f) }
+
+    fun beginDragFrame() {
+        dragDisplacement = 0f
+        lastFrameMs = SystemClock.uptimeMillis()
+        scrubMapper.reset()
+    }
+
+    fun dragBy(dx: Float) {
+        dragDisplacement += dx
+        val now = SystemClock.uptimeMillis()
+        val steps = scrubMapper.onFrame(dragDisplacement, now - lastFrameMs)
+        lastFrameMs = now
+        if (steps != 0) session.scrub(steps)
+    }
+
+    fun dismissSheet() {
+        scope.launch {
+            sheetOffset.animateTo(1f, tween(200))
+            sheetVisible = false
+        }
+    }
+
+    /** After the finger lifts, snap the sheet fully open or dismiss it. */
+    fun settleSheet() {
+        scope.launch {
+            if (sheetOffset.value < 0.5f) {
+                sheetOffset.animateTo(0f, tween(200))
+            } else {
+                sheetOffset.animateTo(1f, tween(200))
+                sheetVisible = false
+            }
+        }
+    }
 
     Box(
         Modifier
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
-                if (showSeekSheet) return@onRotaryScrollEvent true
+                if (sheetVisible) return@onRotaryScrollEvent true
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
                     repeat(kotlin.math.abs(steps)) {
@@ -136,50 +183,68 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             .focusRequester(focusRequester)
             .focusable()
             .pointerInput(session) {
+                // Entry into scrub mode: long-press, then drag without lifting.
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
-                        if (!showSeekSheet) {
-                            session.pause()
-                            scrubbing = true
-                            dragDisplacement = 0f
-                            lastFrameMs = SystemClock.uptimeMillis()
-                            scrubMapper.reset()
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (!sheetVisible) {
+                            if (!scrubbing) {
+                                session.pause()
+                                scrubbing = true
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            longPressGestureActive = true
+                            beginDragFrame()
                         }
                     },
                     onDrag = { change, dragAmount ->
-                        if (scrubbing) {
+                        if (longPressGestureActive) {
                             change.consume()
-                            dragDisplacement += dragAmount.x
-                            val now = SystemClock.uptimeMillis()
-                            val steps = scrubMapper.onFrame(dragDisplacement, now - lastFrameMs)
-                            lastFrameMs = now
-                            if (steps != 0) session.scrub(steps)
+                            dragBy(dragAmount.x)
                         }
                     },
-                    onDragEnd = { scrubbing = false },
-                    onDragCancel = { scrubbing = false },
+                    onDragEnd = { longPressGestureActive = false },
+                    onDragCancel = { longPressGestureActive = false },
                 )
+            }
+            .pointerInput(scrubbing, session) {
+                // Once scrub mode is sticky, plain horizontal drags keep moving through the words.
+                if (scrubbing) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { if (!longPressGestureActive) beginDragFrame() },
+                        onHorizontalDrag = { change, dx ->
+                            if (!longPressGestureActive) {
+                                change.consume()
+                                dragBy(dx)
+                            }
+                        },
+                    )
+                }
             }
             .pointerInput(session) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
-                        if (showSeekSheet) {
-                            if (dragAmount > 20f) { // decisive downward swipe dismisses the sheet
-                                change.consume()
-                                showSeekSheet = false
-                            }
-                        } else if (dragAmount < -20f) { // decisive upward swipe opens it
+                        val height = size.height.toFloat().coerceAtLeast(1f)
+                        if (sheetVisible) {
+                            // Sheet follows the finger in both directions.
+                            change.consume()
+                            val target = (sheetOffset.value + dragAmount / height).coerceIn(0f, 1f)
+                            scope.launch { sheetOffset.snapTo(target) }
+                        } else if (dragAmount < -6f) {
+                            // Upward pull starts dragging the sheet in from the bottom.
                             change.consume()
                             session.pause()
-                            showSeekSheet = true
+                            sheetVisible = true
+                            scope.launch { sheetOffset.snapTo((1f + dragAmount / height).coerceIn(0f, 1f)) }
                         }
                     },
+                    onDragEnd = { if (sheetVisible) settleSheet() },
+                    onDragCancel = { if (sheetVisible) settleSheet() },
                 )
             }
             .clickable {
-                if (!scrubbing && !showSeekSheet) {
+                if (!sheetVisible && !longPressGestureActive) {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (scrubbing) scrubbing = false
                     session.togglePlay()
                 }
             },
@@ -200,7 +265,11 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             }
             if (!state.isPlaying) {
                 Text(
-                    text = if (state.finished) "Finished — tap to restart chapter" else "Paused — tap to play",
+                    text = when {
+                        scrubbing -> "Drag to move — tap to read from here"
+                        state.finished -> "Finished — tap to restart chapter"
+                        else -> "Paused — tap to play"
+                    },
                     style = MaterialTheme.typography.caption3,
                     color = MaterialTheme.colors.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -225,12 +294,13 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             )
         }
 
-        if (showSeekSheet) {
+        if (sheetVisible) {
             SeekSheet(
                 wordIndex = state.wordIndex,
                 wordCount = state.chapterWordCount,
                 onSeek = { fraction -> session.seekToFraction(fraction) },
-                onDismiss = { showSeekSheet = false },
+                onDismiss = { dismissSheet() },
+                modifier = Modifier.graphicsLayer { translationY = sheetOffset.value * size.height },
             )
         }
     }
@@ -317,11 +387,12 @@ private fun SeekSheet(
     wordCount: Int,
     onSeek: (Double) -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val initial = if (wordCount <= 1) 0f else wordIndex.toFloat() / (wordCount - 1)
     var fraction by remember { mutableFloatStateOf(initial) }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colors.background)
             .clickable(

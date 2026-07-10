@@ -35,6 +35,7 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
     private fun wordKey(bookId: String) = intPreferencesKey("pos_${bookId}_word")
     private val lastBookKey = stringPreferencesKey("last_book")
     private val wordSizeKey = intPreferencesKey("word_size")
+    private val readingModeKey = stringPreferencesKey("reading_mode")
     private val snapBookKey = stringPreferencesKey("snap_book")
     private val snapTitleKey = stringPreferencesKey("snap_title")
     private val snapWordKey = stringPreferencesKey("snap_word")
@@ -55,6 +56,13 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setWordSize(sp: Int) {
         dataStore.edit { it[wordSizeKey] = sp }
+    }
+
+    /** Selected reading style: rsvp | line | paged | scroll. Watch-local. */
+    val readingMode: Flow<String> = dataStore.data.map { it[readingModeKey] ?: "rsvp" }
+
+    suspend fun setReadingMode(mode: String) {
+        dataStore.edit { it[readingModeKey] = mode }
     }
 
     /** Id of the most recently read book (last savePosition call), or null. */

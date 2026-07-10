@@ -153,6 +153,10 @@ class ReaderSession(
     fun wordsOf(chapterIndex: Int): List<String> =
         chapterWords.getOrElse(chapterIndex) { emptyList() }
 
+    /** Raw text of a chapter, or empty for an out-of-range index. */
+    fun chapterText(chapterIndex: Int): String =
+        book.chapters.getOrNull(chapterIndex)?.text.orEmpty()
+
     /** Jump directly to a word in the current chapter. Only while paused; does not persist. */
     fun jumpToWord(index: Int) {
         if (_state.value.isPlaying) return

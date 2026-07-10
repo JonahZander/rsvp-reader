@@ -289,4 +289,12 @@ class ReaderSessionTest {
         assertEquals("one", session.state.value.word)
         assertFalse(session.state.value.isPlaying)
     }
+
+    @Test
+    fun `chapterText returns the raw chapter text and empty out of range`() = runTest {
+        val (session, _) = newHarness()
+        assertEquals("one two three.", session.chapterText(0))
+        assertEquals("four five", session.chapterText(1))
+        assertEquals("", session.chapterText(9))
+    }
 }

@@ -114,4 +114,11 @@ class ProgressStoreTest {
         store.clearPosition("book-a")
         assertEquals(ReadingPosition(0, 0), store.position("book-a").first())
     }
+
+    @Test
+    fun `reading mode defaults to rsvp and persists`() = runStoreTest { store ->
+        assertEquals("rsvp", store.readingMode.first())
+        store.setReadingMode("paged")
+        assertEquals("paged", store.readingMode.first())
+    }
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -80,6 +81,9 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
 private val OrpColor = Color(0xFFE5484D)
+
+/** The ORP letter is pinned slightly left of screen center, where the eye naturally fixates. */
+private val OrpLeftShift = 16.dp
 
 fun fontFamilyFor(name: String): FontFamily = when (name) {
     "serif" -> FontFamily.Serif
@@ -448,7 +452,10 @@ private fun OrpWord(word: String, orpIndex: Int, font: String) {
     val orp = word.getOrNull(safeOrp)?.toString() ?: ""
     val post = word.drop(safeOrp + 1)
 
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().offset(x = -OrpLeftShift),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(pre, style = style, textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.weight(1f))
         Text(orp, style = style, color = OrpColor, maxLines = 1)
         Text(post, style = style, textAlign = TextAlign.Start, maxLines = 1, modifier = Modifier.weight(1f))

@@ -6,6 +6,9 @@ kotlinxCoroutines = "1.9.0"
 composeBom = "2024.10.01"
 activityCompose = "1.9.3"
 wearCompose = "1.4.0"
+wearTiles = "1.4.1"
+protolayout = "1.2.1"
+concurrentFutures = "1.2.0"
 datastore = "1.1.1"
 playServicesWearable = "18.2.0"
 lifecycle = "2.8.7"
@@ -32,6 +35,10 @@ navigation-compose = { module = "androidx.navigation:navigation-compose", versio
 wear-compose-material = { module = "androidx.wear.compose:compose-material", version.ref = "wearCompose" }
 wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation", version.ref = "wearCompose" }
 wear-compose-navigation = { module = "androidx.wear.compose:compose-navigation", version.ref = "wearCompose" }
+wear-tiles = { module = "androidx.wear.tiles:tiles", version.ref = "wearTiles" }
+wear-protolayout = { module = "androidx.wear.protolayout:protolayout", version.ref = "protolayout" }
+wear-protolayout-material = { module = "androidx.wear.protolayout:protolayout-material", version.ref = "protolayout" }
+concurrent-futures-ktx = { module = "androidx.concurrent:concurrent-futures-ktx", version.ref = "concurrentFutures" }
 
 lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }

@@ -34,6 +34,7 @@ class ReaderSession(
     private val book: Book,
     private val progressStore: ProgressStore,
     private val scope: CoroutineScope,
+    private val onPositionSaved: () -> Unit = {},
 ) {
     private val chapterWords: List<List<String>> =
         book.chapters.map { RsvpEngine.tokenize(it.text) }
@@ -144,6 +145,21 @@ class ReaderSession(
         savePosition()
     }
 
+    /** All words of a chapter, or an empty list for an out-of-range index. */
+    fun wordsOf(chapterIndex: Int): List<String> =
+        chapterWords.getOrElse(chapterIndex) { emptyList() }
+
+    /** Jump directly to a word in the current chapter. Only while paused; does not persist. */
+    fun jumpToWord(index: Int) {
+        if (_state.value.isPlaying) return
+        val s = _state.value
+        val target = index.coerceIn(0, chapterWords[s.chapterIndex].lastIndex.coerceAtLeast(0))
+        if (target != s.wordIndex) _state.value = stateAt(s.chapterIndex, target)
+    }
+
+    /** Persist the current position (called when a scrub gesture settles). */
+    fun persistPosition() = savePosition()
+
     /** Words around the current position: [before2, before1, current, after1, after2]; nulls at chapter edges. */
     fun neighborWords(radius: Int = 2): List<String?> {
         val s = _state.value
@@ -168,6 +184,7 @@ class ReaderSession(
         val s = _state.value
         scope.launch {
             progressStore.savePosition(book.id, ReadingPosition(s.chapterIndex, s.wordIndex))
+            onPositionSaved()
         }
     }
 

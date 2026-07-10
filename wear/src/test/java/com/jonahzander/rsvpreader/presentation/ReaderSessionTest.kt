@@ -37,14 +37,19 @@ class ReaderSessionTest {
         ),
     )
 
-    private fun TestScope.newHarness(): Pair<ReaderSession, ProgressStore> {
+    private fun TestScope.newHarness(onPositionSaved: () -> Unit = {}): Pair<ReaderSession, ProgressStore> {
         val dsScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
         val store = ProgressStore(
             PreferenceDataStoreFactory.create(scope = dsScope) {
                 tmp.newFolder().resolve("p.preferences_pb")
             }
         )
-        val session = ReaderSession(book, store, CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob()))
+        val session = ReaderSession(
+            book,
+            store,
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob()),
+            onPositionSaved,
+        )
         runCurrent()
         return session to store
     }
@@ -185,6 +190,56 @@ class ReaderSessionTest {
         runCurrent()
         assertEquals("three.", session.state.value.word) // last word of chapter 0
         assertEquals(ReadingPosition(0, 2), store.position("b").first())
+    }
+
+    @Test
+    fun `jumpToWord moves within the chapter while paused and clamps`() = runTest {
+        val (session, _) = newHarness()
+        session.jumpToWord(2)
+        runCurrent()
+        assertEquals("three.", session.state.value.word)
+        session.jumpToWord(99)
+        runCurrent()
+        assertEquals("three.", session.state.value.word)
+        session.jumpToWord(-5)
+        runCurrent()
+        assertEquals("one", session.state.value.word)
+    }
+
+    @Test
+    fun `jumpToWord is ignored while playing`() = runTest {
+        val (session, _) = newHarness()
+        session.togglePlay()
+        runCurrent()
+        session.jumpToWord(2)
+        runCurrent()
+        assertEquals("one", session.state.value.word)
+    }
+
+    @Test
+    fun `persistPosition saves the current word`() = runTest {
+        val (session, store) = newHarness()
+        session.jumpToWord(1)
+        session.persistPosition()
+        runCurrent()
+        assertEquals(ReadingPosition(0, 1), store.position("b").first())
+    }
+
+    @Test
+    fun `wordsOf returns the words of a chapter and empty out of range`() = runTest {
+        val (session, _) = newHarness()
+        assertEquals(listOf("one", "two", "three."), session.wordsOf(0))
+        assertEquals(listOf("four", "five"), session.wordsOf(1))
+        assertTrue(session.wordsOf(7).isEmpty())
+    }
+
+    @Test
+    fun `saving position notifies the listener`() = runTest {
+        var notified = 0
+        val (session, _) = newHarness(onPositionSaved = { notified++ })
+        session.pause() // pause always persists
+        runCurrent()
+        assertTrue(notified > 0)
     }
 
     @Test

@@ -153,4 +153,34 @@ class RsvpEngineTest {
             tokens,
         )
     }
+
+    // --- tokenizeWithOffsets ---
+
+    @Test
+    fun `tokenizeWithOffsets matches tokenize and records original offsets`() {
+        val text = "The quick\n\n  fox."
+        val tokens = RsvpEngine.tokenizeWithOffsets(text)
+        assertEquals(RsvpEngine.tokenize(text), tokens.map { it.word })
+        assertEquals(listOf(0, 4, 13), tokens.map { it.startOffset })
+        // Offsets point at the words in the original text.
+        tokens.forEach { assertEquals(it.word, text.substring(it.startOffset, it.startOffset + it.word.length)) }
+    }
+
+    @Test
+    fun `tokenizeWithOffsets keeps hyphen-split parts contiguous in the original text`() {
+        val text = "a miniature-painter here"
+        val tokens = RsvpEngine.tokenizeWithOffsets(text)
+        assertEquals(listOf("a", "miniature-", "painter", "here"), tokens.map { it.word })
+        assertEquals(listOf(0, 2, 12, 20), tokens.map { it.startOffset })
+    }
+
+    @Test
+    fun `wordIndexAt finds the word covering or preceding a char offset`() {
+        val tokens = RsvpEngine.tokenizeWithOffsets("one two three")
+        assertEquals(0, RsvpEngine.wordIndexAt(tokens, 0))
+        assertEquals(0, RsvpEngine.wordIndexAt(tokens, 3)) // the space after "one"
+        assertEquals(1, RsvpEngine.wordIndexAt(tokens, 4))
+        assertEquals(2, RsvpEngine.wordIndexAt(tokens, 99))
+        assertEquals(0, RsvpEngine.wordIndexAt(tokens, -5))
+    }
 }

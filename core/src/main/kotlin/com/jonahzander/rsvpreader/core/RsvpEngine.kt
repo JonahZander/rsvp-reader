@@ -13,6 +13,12 @@ data class RsvpToken(
     val durationMs: Long,
 )
 
+/** A tokenized word plus where it starts in the original chapter text. */
+data class OffsetToken(
+    val word: String,
+    val startOffset: Int,
+)
+
 object RsvpEngine {
 
     private const val LONG_WORD_LETTERS = 9
@@ -30,6 +36,30 @@ object RsvpEngine {
         text.split(Regex("\\s+"))
             .filter { it.isNotBlank() }
             .flatMap { splitLongCompound(it) }
+
+    /**
+     * Like [tokenize], but each word carries its start offset in [text].
+     * Hyphen-split parts point into the original compound, so
+     * text.substring(startOffset, startOffset + word.length) == word always holds.
+     */
+    fun tokenizeWithOffsets(text: String): List<OffsetToken> {
+        val result = mutableListOf<OffsetToken>()
+        for (match in Regex("\\S+").findAll(text)) {
+            var offset = match.range.first
+            for (part in splitLongCompound(match.value)) {
+                result.add(OffsetToken(part, offset))
+                offset += part.length
+            }
+        }
+        return result
+    }
+
+    /** Index of the word covering (or last starting before) [charOffset]; 0 for empty/negative. */
+    fun wordIndexAt(tokens: List<OffsetToken>, charOffset: Int): Int {
+        if (tokens.isEmpty()) return 0
+        val insertion = tokens.binarySearchBy(charOffset) { it.startOffset }
+        return if (insertion >= 0) insertion else (-insertion - 2).coerceAtLeast(0)
+    }
 
     /**
      * Splits an overlong hyphenated compound ("miniature-painter") into parts

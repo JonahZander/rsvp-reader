@@ -28,6 +28,43 @@ class RsvpEngineTest {
         )
     }
 
+    @Test
+    fun `tokenize splits long hyphenated compounds keeping the hyphen on the first part`() {
+        assertEquals(
+            listOf("miniature-", "painter"),
+            RsvpEngine.tokenize("miniature-painter"),
+        )
+    }
+
+    @Test
+    fun `tokenize keeps short hyphenated words whole`() {
+        assertEquals(listOf("re-do", "well-fed."), RsvpEngine.tokenize("re-do well-fed."))
+    }
+
+    @Test
+    fun `tokenize splits multi-hyphen compounds at the largest fitting prefix`() {
+        assertEquals(
+            listOf("state-of-", "the-art-", "technology"),
+            RsvpEngine.tokenize("state-of-the-art-technology"),
+        )
+    }
+
+    @Test
+    fun `tokenize keeps punctuation around split hyphen compounds`() {
+        assertEquals(
+            listOf("\"miniature-", "painter,\""),
+            RsvpEngine.tokenize("\"miniature-painter,\""),
+        )
+    }
+
+    @Test
+    fun `tokenize does not split on dashes without letters on both sides`() {
+        assertEquals(
+            listOf("wait--what", "loooooooooooong--"),
+            RsvpEngine.tokenize("wait--what loooooooooooong--"),
+        )
+    }
+
     // --- orpIndex (classic Spritz letter-position rules by core word length) ---
 
     @Test

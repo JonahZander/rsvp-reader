@@ -23,8 +23,31 @@ object RsvpEngine {
     private val SENTENCE_END = charArrayOf('.', '!', '?', '…')
     private val CLAUSE_END = charArrayOf(',', ';', ':')
 
+    /** Hyphenated compounds longer than this are split so each part fits the screen. */
+    private const val MAX_TOKEN_CHARS = 12
+
     fun tokenize(text: String): List<String> =
-        text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        text.split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .flatMap { splitLongCompound(it) }
+
+    /**
+     * Splits an overlong hyphenated compound ("miniature-painter") into parts
+     * that fit on screen, keeping the hyphen on the leading part
+     * ("miniature-", "painter"). Splits at the largest fitting prefix and
+     * recurses, so multi-hyphen compounds break into as few parts as possible.
+     */
+    private fun splitLongCompound(token: String): List<String> {
+        if (token.length <= MAX_TOKEN_CHARS) return listOf(token)
+        // Split points: just after a '-' that has a letter or digit on both sides.
+        val splitPoints = token.indices.filter { i ->
+            token[i] == '-' && i > 0 && i < token.lastIndex &&
+                token[i - 1].isLetterOrDigit() && token[i + 1].isLetterOrDigit()
+        }.map { it + 1 }
+        if (splitPoints.isEmpty()) return listOf(token)
+        val cut = splitPoints.lastOrNull { it <= MAX_TOKEN_CHARS } ?: splitPoints.first()
+        return listOf(token.substring(0, cut)) + splitLongCompound(token.substring(cut))
+    }
 
     fun orpIndex(word: String): Int {
         val leading = word.indexOfFirst { it.isLetterOrDigit() }.coerceAtLeast(0)

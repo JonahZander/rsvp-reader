@@ -3,24 +3,33 @@ package com.jonahzander.rsvpreader.presentation
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -28,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -40,10 +50,12 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,8 +67,10 @@ import androidx.wear.compose.material.InlineSliderDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RotaryAccumulator
-import com.jonahzander.rsvpreader.core.ScrubMapper
+import com.jonahzander.rsvpreader.core.RsvpEngine
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
 private val OrpColor = Color(0xFFE5484D)
@@ -114,32 +128,41 @@ private fun ReaderContent(session: ReaderSession, font: String) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
-    val scrubMapper = remember(density) { ScrubMapper(deadZonePx = with(density) { 12.dp.toPx() }, gain = 0.002f) }
 
     // Scrub mode is sticky: entered by long-press, left only by a tap (which resumes reading).
     var scrubbing by remember { mutableStateOf(false) }
     // True while the finger that entered scrub mode is still down, so its release isn't a "tap".
     var longPressGestureActive by remember { mutableStateOf(false) }
-    var dragDisplacement by remember { mutableFloatStateOf(0f) }
-    var lastFrameMs by remember { mutableLongStateOf(0L) }
+
+    val scrubListState = rememberLazyListState()
+    val centeredIndex by remember { derivedStateOf { centeredItemIndex(scrubListState) } }
+    val chapterWords = remember(session, state.chapterIndex) { session.wordsOf(state.chapterIndex) }
+
+    // Entering scrub mode (or crossing a chapter boundary while in it): start on the current word.
+    LaunchedEffect(scrubbing, state.chapterIndex) {
+        if (scrubbing) scrubListState.centerOnWord(session.state.value.wordIndex)
+    }
+
+    // While scrubbing, the word nearest the screen center IS the reading position.
+    LaunchedEffect(scrubbing) {
+        if (scrubbing) {
+            snapshotFlow { centeredItemIndex(scrubListState) }
+                .collect { session.jumpToWord(it) }
+        }
+    }
+
+    // Persist once a drag/fling settles.
+    LaunchedEffect(scrubbing) {
+        if (scrubbing) {
+            snapshotFlow { scrubListState.isScrollInProgress }
+                .filter { !it }
+                .collect { session.persistPosition() }
+        }
+    }
 
     // Seek sheet slides with the finger: offset fraction 1 = hidden below, 0 = fully open.
     var sheetVisible by remember { mutableStateOf(false) }
     val sheetOffset = remember { Animatable(1f) }
-
-    fun beginDragFrame() {
-        dragDisplacement = 0f
-        lastFrameMs = SystemClock.uptimeMillis()
-        scrubMapper.reset()
-    }
-
-    fun dragBy(dx: Float) {
-        dragDisplacement += dx
-        val now = SystemClock.uptimeMillis()
-        val steps = scrubMapper.onFrame(dragDisplacement, now - lastFrameMs)
-        lastFrameMs = now
-        if (steps != 0) session.scrub(steps)
-    }
 
     fun dismissSheet() {
         scope.launch {
@@ -173,6 +196,13 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                     if (state.isPlaying) {
                         session.adjustWpm(steps * 10)
                         showOverlay("${session.state.value.wpm} wpm")
+                    } else if (scrubbing) {
+                        scope.launch {
+                            val target = (centeredItemIndex(scrubListState) + steps)
+                                .coerceIn(0, (chapterWords.size - 1).coerceAtLeast(0))
+                            scrubListState.centerOnWord(target)
+                        }
+                        showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
                     } else {
                         session.scrub(steps)
                         showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
@@ -183,7 +213,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             .focusRequester(focusRequester)
             .focusable()
             .pointerInput(session) {
-                // Entry into scrub mode: long-press, then drag without lifting.
+                // Long-press enters scrub mode; keeping the finger down drags the line directly.
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
                         if (!sheetVisible) {
@@ -193,32 +223,17 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             }
                             longPressGestureActive = true
-                            beginDragFrame()
                         }
                     },
                     onDrag = { change, dragAmount ->
                         if (longPressGestureActive) {
                             change.consume()
-                            dragBy(dragAmount.x)
+                            scrubListState.dispatchRawDelta(-dragAmount.x)
                         }
                     },
                     onDragEnd = { longPressGestureActive = false },
                     onDragCancel = { longPressGestureActive = false },
                 )
-            }
-            .pointerInput(scrubbing, session) {
-                // Once scrub mode is sticky, plain horizontal drags keep moving through the words.
-                if (scrubbing) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { if (!longPressGestureActive) beginDragFrame() },
-                        onHorizontalDrag = { change, dx ->
-                            if (!longPressGestureActive) {
-                                change.consume()
-                                dragBy(dx)
-                            }
-                        },
-                    )
-                }
             }
             .pointerInput(session) {
                 detectVerticalDragGestures(
@@ -259,14 +274,19 @@ private fun ReaderContent(session: ReaderSession, font: String) {
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (scrubbing) {
-                ScrubRibbon(session = session, font = font)
+                ScrubLine(
+                    words = chapterWords,
+                    listState = scrubListState,
+                    centeredIndex = centeredIndex,
+                    font = font,
+                )
             } else {
                 OrpWord(word = state.word, orpIndex = state.orpIndex, font = font)
             }
             if (!state.isPlaying) {
                 Text(
                     text = when {
-                        scrubbing -> "Drag to move — tap to read from here"
+                        scrubbing -> "Swipe to move — tap to read from here"
                         state.finished -> "Finished — tap to restart chapter"
                         else -> "Paused — tap to play"
                     },
@@ -330,55 +350,68 @@ private fun OrpWord(word: String, orpIndex: Int, font: String) {
     }
 }
 
+/**
+ * The chapter as one continuous, fling-scrollable line of text. Words clip
+ * naturally at the screen edges; the word nearest the center is emphasized
+ * and drives the reading position.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ScrubRibbon(session: ReaderSession, font: String) {
-    val state by session.state.collectAsStateWithLifecycle()
-    val neighbors = remember(state.wordIndex, state.chapterIndex) { session.neighborWords() }
+private fun ScrubLine(
+    words: List<String>,
+    listState: LazyListState,
+    centeredIndex: Int,
+    font: String,
+) {
     val family = fontFamilyFor(font)
-    val center = neighbors.size / 2
-
-    @Composable
-    fun NeighborText(word: String?) {
-        Text(
-            text = word ?: "",
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontFamily = family,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-    }
-
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            Modifier.weight(1f),
-            horizontalArrangement = Arrangement.End,
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val sidePadding = maxWidth / 2
+        LazyRow(
+            state = listState,
+            flingBehavior = rememberSnapFlingBehavior(listState),
+            contentPadding = PaddingValues(horizontal = sidePadding),
             verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            neighbors.take(center).forEach { NeighborText(it) }
-        }
-        Text(
-            text = neighbors[center] ?: "",
-            maxLines = 1,
-            fontFamily = family,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colors.onBackground,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-        Row(
-            Modifier.weight(1f),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            neighbors.drop(center + 1).forEach { NeighborText(it) }
+            itemsIndexed(words) { index, word ->
+                val centered = index == centeredIndex
+                val text = if (centered && word.isNotEmpty()) {
+                    buildAnnotatedString {
+                        append(word)
+                        val orp = RsvpEngine.orpIndex(word).coerceIn(0, word.length - 1)
+                        addStyle(SpanStyle(color = OrpColor), orp, orp + 1)
+                    }
+                } else {
+                    AnnotatedString(word)
+                }
+                Text(
+                    text = text,
+                    maxLines = 1,
+                    fontFamily = family,
+                    fontSize = 18.sp,
+                    fontWeight = if (centered) FontWeight.Medium else FontWeight.Normal,
+                    color = if (centered) MaterialTheme.colors.onBackground
+                    else MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 3.dp),
+                )
+            }
         }
     }
+}
+
+/** Index of the visible word whose center is closest to the viewport center. */
+private fun centeredItemIndex(listState: LazyListState): Int {
+    val info = listState.layoutInfo
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    return info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }?.index ?: 0
+}
+
+/** Scroll so the word at [index] sits exactly at the viewport center. */
+private suspend fun LazyListState.centerOnWord(index: Int) {
+    scrollToItem(index)
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+    scrollBy(item.offset + item.size / 2f - center)
 }
 
 @Composable

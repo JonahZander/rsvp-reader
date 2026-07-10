@@ -160,13 +160,6 @@ class ReaderSession(
     /** Persist the current position (called when a scrub gesture settles). */
     fun persistPosition() = savePosition()
 
-    /** Words around the current position: [before2, before1, current, after1, after2]; nulls at chapter edges. */
-    fun neighborWords(radius: Int = 2): List<String?> {
-        val s = _state.value
-        val words = chapterWords[s.chapterIndex]
-        return ((s.wordIndex - radius)..(s.wordIndex + radius)).map { words.getOrNull(it) }
-    }
-
     private fun stateAt(chapterIndex: Int, wordIndex: Int): ReaderState {
         val words = chapterWords[chapterIndex]
         val word = words.getOrElse(wordIndex) { "" }

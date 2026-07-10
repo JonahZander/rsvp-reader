@@ -23,15 +23,18 @@ import com.jonahzander.rsvpreader.sync.DataLayerImport
 import kotlinx.coroutines.launch
 
 @Composable
-fun WearApp(app: ReaderApplication, launchBookId: String? = null) {
+fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: Int = 0) {
     val navController = rememberSwipeDismissableNavController()
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         app.bookRepository.refresh()
         DataLayerImport.importAll(app, app.bookRepository, app.progressStore)
-        // Tile tap: jump straight into the reader; it restores the saved position
-        // itself. A stale book id falls through to the library.
+    }
+
+    // Tile tap (cold start or onNewIntent): jump straight into the reader; it
+    // restores the saved position itself. A stale book id stays on the library.
+    LaunchedEffect(launchBookId, launchNonce) {
         if (launchBookId != null && app.bookRepository.get(launchBookId) != null) {
             navController.navigate("reader/$launchBookId")
         }

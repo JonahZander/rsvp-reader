@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -82,7 +83,11 @@ fun fontFamilyFor(name: String): FontFamily = when (name) {
 }
 
 @Composable
-fun ReaderScreen(viewModel: ReaderViewModel, font: String) {
+fun ReaderScreen(
+    viewModel: ReaderViewModel,
+    font: String,
+    onScrubbingChanged: (Boolean) -> Unit,
+) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val current = session
     if (current == null) {
@@ -91,11 +96,15 @@ fun ReaderScreen(viewModel: ReaderViewModel, font: String) {
         }
         return
     }
-    ReaderContent(current, font)
+    ReaderContent(current, font, onScrubbingChanged)
 }
 
 @Composable
-private fun ReaderContent(session: ReaderSession, font: String) {
+private fun ReaderContent(
+    session: ReaderSession,
+    font: String,
+    onScrubbingChanged: (Boolean) -> Unit,
+) {
     val state by session.state.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
@@ -133,6 +142,10 @@ private fun ReaderContent(session: ReaderSession, font: String) {
     var scrubbing by remember { mutableStateOf(false) }
     // True while the finger that entered scrub mode is still down, so its release isn't a "tap".
     var longPressGestureActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(scrubbing) { onScrubbingChanged(scrubbing) }
+    // Never leave the nav host with swipe-back stuck off.
+    DisposableEffect(Unit) { onDispose { onScrubbingChanged(false) } }
 
     val scrubListState = rememberLazyListState()
     val centeredIndex by remember { derivedStateOf { centeredItemIndex(scrubListState) } }

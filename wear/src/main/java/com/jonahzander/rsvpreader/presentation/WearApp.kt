@@ -3,7 +3,10 @@ package com.jonahzander.rsvpreader.presentation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -29,8 +32,14 @@ fun WearApp(app: ReaderApplication) {
     val books by app.bookRepository.books.collectAsStateWithLifecycle()
     val settings by app.progressStore.settings.collectAsStateWithLifecycle(ReaderSettings())
 
+    var swipeBackEnabled by remember { mutableStateOf(true) }
+
     MaterialTheme {
-        SwipeDismissableNavHost(navController = navController, startDestination = "library") {
+        SwipeDismissableNavHost(
+            navController = navController,
+            startDestination = "library",
+            userSwipeEnabled = swipeBackEnabled,
+        ) {
             composable("library") {
                 LibraryScreen(
                     books = books,
@@ -60,7 +69,11 @@ fun WearApp(app: ReaderApplication) {
                     key = "reader-$bookId-$chapter",
                     factory = ReaderViewModel.factory(app, bookId, chapter),
                 )
-                ReaderScreen(readerViewModel, settings.font)
+                ReaderScreen(
+                    viewModel = readerViewModel,
+                    font = settings.font,
+                    onScrubbingChanged = { swipeBackEnabled = !it },
+                )
             }
             composable("settings") {
                 SettingsScreen(

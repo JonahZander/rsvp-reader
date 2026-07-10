@@ -164,7 +164,12 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             .pointerInput(session) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
-                        if (dragAmount < -20f && !showSeekSheet) { // decisive upward swipe
+                        if (showSeekSheet) {
+                            if (dragAmount > 20f) { // decisive downward swipe dismisses the sheet
+                                change.consume()
+                                showSeekSheet = false
+                            }
+                        } else if (dragAmount < -20f) { // decisive upward swipe opens it
                             change.consume()
                             session.pause()
                             showSeekSheet = true

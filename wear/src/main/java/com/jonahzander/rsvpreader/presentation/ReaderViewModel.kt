@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.wear.tiles.TileService
 import com.jonahzander.rsvpreader.ReaderApplication
+import com.jonahzander.rsvpreader.tile.ContinueReadingTileService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -22,7 +24,9 @@ class ReaderViewModel(
         viewModelScope.launch {
             app.bookRepository.refresh()
             val book = app.bookRepository.get(bookId) ?: return@launch
-            val session = ReaderSession(book, app.progressStore, viewModelScope)
+            val session = ReaderSession(book, app.progressStore, viewModelScope) {
+                TileService.getUpdater(app).requestUpdate(ContinueReadingTileService::class.java)
+            }
             if (startChapter != null) session.jumpToChapter(startChapter)
             _session.value = session
         }

@@ -102,8 +102,7 @@ fun ReaderScreen(
         return
     }
     when (mode) {
-        // Scroll (Task 7) falls back to the word line until implemented.
-        ReadingMode.Rsvp, ReadingMode.Line, ReadingMode.Scroll -> {
+        ReadingMode.Rsvp, ReadingMode.Line -> {
             val overlay = rememberOverlayTextState()
             ReaderChrome(
                 session = current,
@@ -145,6 +144,30 @@ fun ReaderScreen(
                     font = font,
                     wordSize = wordSize,
                     chromeOpen = chromeOpen,
+                )
+            }
+        }
+        ReadingMode.Scroll -> {
+            // Vertical gestures belong to scrolling: the menu opens via
+            // long-press, there is no seek sheet, and swipe-back stays
+            // enabled throughout.
+            LaunchedEffect(Unit) { onScrubbingChanged(false) }
+            ReaderChrome(
+                session = current,
+                menuTrigger = MenuTrigger.LongPress,
+                seekSheetEnabled = false,
+                onOpenChapters = onOpenChapters,
+                onOpenLibrary = onOpenLibrary,
+                onOpenSettings = onOpenSettings,
+                onExit = onExit,
+                showOverlayText = remember { mutableStateOf(null) },
+            ) { chromeOpen, openMenu ->
+                ScrollReader(
+                    session = current,
+                    font = font,
+                    wordSize = wordSize,
+                    chromeOpen = chromeOpen,
+                    openMenu = openMenu,
                 )
             }
         }

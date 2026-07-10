@@ -1,5 +1,6 @@
 package com.jonahzander.rsvpreader.presentation
 
+import android.os.SystemClock
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
+import com.jonahzander.rsvpreader.core.RotaryAccumulator
 
 private val OrpColor = Color(0xFFE5484D)
 
@@ -86,17 +89,23 @@ private fun ReaderContent(session: ReaderSession, font: String) {
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+    val density = LocalDensity.current
+    val rotary = remember { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
+
     Box(
         Modifier
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
-                if (state.isPlaying) {
-                    val delta = if (event.verticalScrollPixels > 0) 25 else -25
-                    session.adjustWpm(delta)
-                    showOverlay("${session.state.value.wpm} wpm")
-                } else {
-                    session.scrub(if (event.verticalScrollPixels > 0) 1 else -1)
-                    showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
+                val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
+                if (steps != 0) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (state.isPlaying) {
+                        session.adjustWpm(steps * 10)
+                        showOverlay("${session.state.value.wpm} wpm")
+                    } else {
+                        session.scrub(steps)
+                        showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
+                    }
                 }
                 true
             }

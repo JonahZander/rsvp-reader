@@ -3,15 +3,17 @@ package com.jonahzander.rsvpreader.presentation
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -56,9 +58,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,6 +90,9 @@ private val OrpColor = Color(0xFFE5484D)
 /** The ORP letter is pinned slightly left of screen center, where the eye naturally fixates. */
 private val OrpLeftShift = 16.dp
 
+/** Horizontal padding around each word in the line (half the inter-word gap). */
+private val WordSpacing = 3.dp
+
 fun fontFamilyFor(name: String): FontFamily = when (name) {
     "serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace
@@ -95,6 +103,7 @@ fun fontFamilyFor(name: String): FontFamily = when (name) {
 fun ReaderScreen(
     viewModel: ReaderViewModel,
     font: String,
+    wordSize: Int,
     onScrubbingChanged: (Boolean) -> Unit,
     onOpenChapters: () -> Unit,
     onOpenLibrary: () -> Unit,
@@ -109,13 +118,21 @@ fun ReaderScreen(
         }
         return
     }
-    ReaderContent(current, font, onScrubbingChanged, onOpenChapters, onOpenLibrary, onOpenSettings, onExit)
+    ReaderContent(current, font, wordSize, onScrubbingChanged, onOpenChapters, onOpenLibrary, onOpenSettings, onExit)
 }
 
+/**
+ * The reader is a single word line in both states. While playing, only the
+ * current word is visible (neighbors at alpha 0) with its ORP letter pinned
+ * to a fixed point; pausing fades the surrounding words in around it, so the
+ * transition between reading and browsing never moves the current word.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReaderContent(
     session: ReaderSession,
     font: String,
+    wordSize: Int,
     onScrubbingChanged: (Boolean) -> Unit,
     onOpenChapters: () -> Unit,
     onOpenLibrary: () -> Unit,
@@ -139,7 +156,7 @@ private fun ReaderContent(
 
     LaunchedEffect(overlayUntil) {
         if (overlayUntil > 0) {
-            kotlinx.coroutines.delay(1300)
+            delay(1300)
             if (System.currentTimeMillis() >= overlayUntil) overlayVisible = false
         }
     }
@@ -155,46 +172,97 @@ private fun ReaderContent(
     val scope = rememberCoroutineScope()
     val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
 
-    // Scrub mode is sticky: entered by long-press, left only by a tap (which resumes reading).
-    var scrubbing by remember { mutableStateOf(false) }
-    // True while the finger that entered scrub mode is still down, so its release isn't a "tap".
-    var longPressGestureActive by remember { mutableStateOf(false) }
-    // Debounces the snap-to-center after the crown stops turning.
+    // Debounces the snap-to-pin after the crown stops turning.
     var rotarySettleJob by remember { mutableStateOf<Job?>(null) }
 
-    LaunchedEffect(scrubbing) { onScrubbingChanged(scrubbing) }
+    // Paused = the line is swipeable, so the horizontal gestures must not leave the reader.
+    LaunchedEffect(state.isPlaying) { onScrubbingChanged(!state.isPlaying) }
     // Never leave the nav host with swipe-back stuck off.
     DisposableEffect(Unit) { onDispose { onScrubbingChanged(false) } }
-
     // On Wear OS 4+ the edge swipe arrives as a system back gesture, which the
     // nav controller would pop regardless of userSwipeEnabled — swallow it too.
-    BackHandler(enabled = scrubbing) {}
+    BackHandler(enabled = !state.isPlaying) {}
 
-    val scrubListState = rememberLazyListState()
-    val centeredIndex by remember { derivedStateOf { centeredItemIndex(scrubListState) } }
+    val listState = rememberLazyListState()
     val chapterWords = remember(session, state.chapterIndex) { session.wordsOf(state.chapterIndex) }
 
-    // Entering scrub mode (or crossing a chapter boundary while in it): start on the current word.
-    LaunchedEffect(scrubbing, state.chapterIndex) {
-        if (scrubbing) scrubListState.centerOnWord(session.state.value.wordIndex)
+    val family = fontFamilyFor(font)
+    val wordStyle = MaterialTheme.typography.title1.copy(
+        fontWeight = FontWeight.Medium,
+        fontSize = wordSize.sp,
+        fontFamily = family,
+    )
+    val textMeasurer = rememberTextMeasurer()
+    val orpShiftPx = with(density) { OrpLeftShift.toPx() }
+    val metrics = remember(chapterWords, wordStyle, textMeasurer, density) {
+        WordPinMetrics(chapterWords, textMeasurer, wordStyle, with(density) { WordSpacing.toPx() })
+    }
+    val pinnedIndex by remember(metrics) {
+        derivedStateOf { pinnedWordIndex(listState, metrics, orpShiftPx) }
     }
 
-    // While scrubbing, the word nearest the screen center IS the reading position.
-    LaunchedEffect(scrubbing) {
-        if (scrubbing) {
-            snapshotFlow { centeredItemIndex(scrubListState) }
+    // Fling snaps so the settled word's ORP letter lands exactly on the pin.
+    val snapPosition = remember(metrics, orpShiftPx) {
+        object : SnapPosition {
+            override fun position(
+                layoutSize: Int,
+                itemSize: Int,
+                beforeContentPadding: Int,
+                afterContentPadding: Int,
+                itemIndex: Int,
+                itemCount: Int,
+            ): Int = SnapPosition.Center.position(
+                layoutSize, itemSize, beforeContentPadding, afterContentPadding, itemIndex, itemCount,
+            ) + (itemSize / 2f - metrics.orpCenter(itemIndex) - orpShiftPx).roundToInt()
+        }
+    }
+    val flingBehavior = rememberSnapFlingBehavior(listState, snapPosition)
+
+    // Playback drives the line: each new word snaps its ORP letter onto the pin.
+    LaunchedEffect(state.isPlaying, metrics) {
+        if (state.isPlaying) {
+            snapshotFlow { state.wordIndex }
+                .collect { listState.pinWord(it, metrics, orpShiftPx, animate = false) }
+        }
+    }
+
+    // While paused, the pinned word IS the reading position…
+    LaunchedEffect(state.isPlaying, metrics) {
+        if (!state.isPlaying) {
+            snapshotFlow { pinnedWordIndex(listState, metrics, orpShiftPx) }
                 .collect { session.jumpToWord(it) }
         }
     }
 
-    // Persist once a drag/fling settles.
-    LaunchedEffect(scrubbing) {
-        if (scrubbing) {
-            snapshotFlow { scrubListState.isScrollInProgress }
+    // …external jumps (position restore, seek sheet) move the line to match…
+    LaunchedEffect(state.isPlaying, metrics) {
+        if (!state.isPlaying) {
+            listState.pinWord(session.state.value.wordIndex, metrics, orpShiftPx, animate = false)
+            snapshotFlow { state.wordIndex }.collect { index ->
+                if (!listState.isScrollInProgress &&
+                    pinnedWordIndex(listState, metrics, orpShiftPx) != index
+                ) {
+                    listState.pinWord(index, metrics, orpShiftPx, animate = false)
+                }
+            }
+        }
+    }
+
+    // …and the position is persisted whenever a drag/fling settles.
+    LaunchedEffect(state.isPlaying) {
+        if (!state.isPlaying) {
+            snapshotFlow { listState.isScrollInProgress }
                 .filter { !it }
                 .collect { session.persistPosition() }
         }
     }
+
+    // Neighbors fade in when pausing and out when reading resumes.
+    val neighborAlpha by animateFloatAsState(
+        targetValue = if (state.isPlaying) 0f else 1f,
+        animationSpec = tween(250),
+        label = "neighborAlpha",
+    )
 
     // Seek sheet slides with the finger: offset fraction 1 = hidden below, 0 = fully open.
     var sheetVisible by remember { mutableStateOf(false) }
@@ -247,58 +315,35 @@ private fun ReaderContent(
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
                 if (sheetVisible || menuVisible) return@onRotaryScrollEvent true
-                if (scrubbing) {
+                if (!state.isPlaying) {
                     // Crown scrolls the line 1:1 like a finger drag; once the
-                    // crown rests, glide the nearest word into the center.
-                    scope.launch { scrubListState.scrollBy(event.verticalScrollPixels) }
+                    // crown rests, glide the nearest word onto the pin.
+                    scope.launch { listState.scrollBy(event.verticalScrollPixels) }
                     rotarySettleJob?.cancel()
                     rotarySettleJob = scope.launch {
                         delay(180)
-                        scrubListState.animateCenterOnWord(centeredItemIndex(scrubListState))
+                        listState.pinWord(
+                            pinnedWordIndex(listState, metrics, orpShiftPx),
+                            metrics,
+                            orpShiftPx,
+                            animate = true,
+                        )
                     }
                     showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
                     return@onRotaryScrollEvent true
                 }
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
-                    repeat(kotlin.math.abs(steps)) {
+                    repeat(abs(steps)) {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
-                    if (state.isPlaying) {
-                        session.adjustWpm(steps * 10)
-                        showOverlay("${session.state.value.wpm} wpm")
-                    } else {
-                        session.scrub(steps)
-                        showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
-                    }
+                    session.adjustWpm(steps * 10)
+                    showOverlay("${session.state.value.wpm} wpm")
                 }
                 true
             }
             .focusRequester(focusRequester)
             .focusable()
-            .pointerInput(session) {
-                // Long-press enters scrub mode; keeping the finger down drags the line directly.
-                detectDragGesturesAfterLongPress(
-                    onDragStart = {
-                        if (!sheetVisible && !menuVisible) {
-                            if (!scrubbing) {
-                                session.pause()
-                                scrubbing = true
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                            longPressGestureActive = true
-                        }
-                    },
-                    onDrag = { change, dragAmount ->
-                        if (longPressGestureActive) {
-                            change.consume()
-                            scrubListState.dispatchRawDelta(-dragAmount.x)
-                        }
-                    },
-                    onDragEnd = { longPressGestureActive = false },
-                    onDragCancel = { longPressGestureActive = false },
-                )
-            }
             .pointerInput(session) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
@@ -343,22 +388,11 @@ private fun ReaderContent(
                 )
             }
             .clickable {
-                if (!sheetVisible && !menuVisible && !longPressGestureActive) {
+                if (!sheetVisible && !menuVisible) {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    when {
-                        // Tap while scrubbing: read on from the centered word.
-                        scrubbing -> {
-                            scrubbing = false
-                            session.togglePlay()
-                        }
-                        // Tap while reading: pause straight into the scrub line.
-                        state.isPlaying -> {
-                            session.pause()
-                            scrubbing = true
-                        }
-                        // Tap while paused/finished: play.
-                        else -> session.togglePlay()
-                    }
+                    // Playing → pause into the browsable line; paused → read on
+                    // from the pinned word.
+                    session.togglePlay()
                 }
             },
         contentAlignment = Alignment.Center,
@@ -370,30 +404,28 @@ private fun ReaderContent(
             strokeWidth = 3.dp,
         )
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (scrubbing) {
-                ScrubLine(
-                    words = chapterWords,
-                    listState = scrubListState,
-                    centeredIndex = centeredIndex,
-                    font = font,
-                )
-            } else {
-                OrpWord(word = state.word, orpIndex = state.orpIndex, font = font)
-            }
-            if (!state.isPlaying) {
-                Text(
-                    text = when {
-                        scrubbing -> "Swipe to move — tap to read from here"
-                        state.finished -> "Finished — tap to restart chapter"
-                        else -> "Paused — tap to play"
-                    },
-                    style = MaterialTheme.typography.caption3,
-                    color = MaterialTheme.colors.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
+        WordLine(
+            words = chapterWords,
+            listState = listState,
+            pinnedIndex = pinnedIndex,
+            style = wordStyle,
+            neighborAlpha = neighborAlpha,
+            flingBehavior = flingBehavior,
+            scrollEnabled = !state.isPlaying,
+        )
+
+        if (!state.isPlaying) {
+            Text(
+                text = if (state.finished) "Finished — tap to restart chapter"
+                else "Swipe to move — tap to read from here",
+                style = MaterialTheme.typography.caption3,
+                color = MaterialTheme.colors.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                // Anchored below the line without affecting its position.
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = (wordSize + 26).dp),
+            )
         }
 
         Text(
@@ -436,58 +468,34 @@ private fun ReaderContent(
 }
 
 /**
- * Displays one word with its optimal-recognition-point letter highlighted and
- * pinned to the horizontal center of the screen, so the eye never moves.
+ * The chapter as one continuous line of text. Words clip naturally at the
+ * screen edges. The pinned word is always fully visible with its ORP letter
+ * highlighted; the surrounding words render at [neighborAlpha] so they can
+ * fade away entirely while playing.
  */
 @Composable
-private fun OrpWord(word: String, orpIndex: Int, font: String) {
-    val family = fontFamilyFor(font)
-    val style = MaterialTheme.typography.title1.copy(
-        fontWeight = FontWeight.Medium,
-        fontSize = 26.sp,
-        fontFamily = family,
-    )
-    val safeOrp = orpIndex.coerceIn(0, (word.length - 1).coerceAtLeast(0))
-    val pre = word.take(safeOrp)
-    val orp = word.getOrNull(safeOrp)?.toString() ?: ""
-    val post = word.drop(safeOrp + 1)
-
-    Row(
-        Modifier.fillMaxWidth().offset(x = -OrpLeftShift),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(pre, style = style, textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.weight(1f))
-        Text(orp, style = style, color = OrpColor, maxLines = 1)
-        Text(post, style = style, textAlign = TextAlign.Start, maxLines = 1, modifier = Modifier.weight(1f))
-    }
-}
-
-/**
- * The chapter as one continuous, fling-scrollable line of text. Words clip
- * naturally at the screen edges; the word nearest the center is emphasized
- * and drives the reading position.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ScrubLine(
+private fun WordLine(
     words: List<String>,
     listState: LazyListState,
-    centeredIndex: Int,
-    font: String,
+    pinnedIndex: Int,
+    style: TextStyle,
+    neighborAlpha: Float,
+    flingBehavior: FlingBehavior,
+    scrollEnabled: Boolean,
 ) {
-    val family = fontFamilyFor(font)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val sidePadding = maxWidth / 2
         LazyRow(
             state = listState,
-            flingBehavior = rememberSnapFlingBehavior(listState),
+            flingBehavior = flingBehavior,
+            userScrollEnabled = scrollEnabled,
             contentPadding = PaddingValues(horizontal = sidePadding),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
             itemsIndexed(words) { index, word ->
-                val centered = index == centeredIndex
-                val text = if (centered && word.isNotEmpty()) {
+                val pinned = index == pinnedIndex
+                val text = if (pinned && word.isNotEmpty()) {
                     buildAnnotatedString {
                         append(word)
                         val orp = RsvpEngine.orpIndex(word).coerceIn(0, word.length - 1)
@@ -499,43 +507,65 @@ private fun ScrubLine(
                 Text(
                     text = text,
                     maxLines = 1,
-                    fontFamily = family,
-                    fontSize = 18.sp,
-                    fontWeight = if (centered) FontWeight.Medium else FontWeight.Normal,
-                    color = if (centered) MaterialTheme.colors.onBackground
-                    else MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(horizontal = 3.dp),
+                    style = style,
+                    color = if (pinned) MaterialTheme.colors.onBackground
+                    else MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f * neighborAlpha),
+                    modifier = Modifier.padding(horizontal = WordSpacing),
                 )
             }
         }
     }
 }
 
-/** Index of the visible word whose center is closest to the viewport center. */
-private fun centeredItemIndex(listState: LazyListState): Int {
-    val info = listState.layoutInfo
-    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
-    return info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }?.index ?: 0
-}
+/**
+ * Measures where each word's ORP letter sits within its list item, so the
+ * line can be aligned with the letter — not the word's bounding box — on the
+ * fixed pin point. Results are memoized per word index.
+ */
+private class WordPinMetrics(
+    private val words: List<String>,
+    private val measurer: TextMeasurer,
+    private val style: TextStyle,
+    private val itemPaddingPx: Float,
+) {
+    val size: Int get() = words.size
+    private val cache = HashMap<Int, Float>()
 
-/** Scroll so the word at [index] sits exactly at the viewport center. */
-private suspend fun LazyListState.centerOnWord(index: Int) {
-    scrollToItem(index)
-    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
-    val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-    scrollBy(item.offset + item.size / 2f - center)
-}
-
-/** Like [centerOnWord] but glides instead of jumping — used for rotary steps. */
-private suspend fun LazyListState.animateCenterOnWord(index: Int) {
-    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-    if (item != null) {
-        val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-        animateScrollBy(item.offset + item.size / 2f - center)
-    } else {
-        // Target is off-screen (shouldn't happen for ±1 rotary steps); jump instead.
-        centerOnWord(index)
+    /** X of the ORP letter's center, measured from the item's left edge. */
+    fun orpCenter(index: Int): Float = cache.getOrPut(index) {
+        val word = words.getOrNull(index).orEmpty()
+        if (word.isEmpty()) return@getOrPut itemPaddingPx
+        val orp = RsvpEngine.orpIndex(word).coerceIn(0, word.length - 1)
+        val box = measurer.measure(AnnotatedString(word), style, maxLines = 1).getBoundingBox(orp)
+        itemPaddingPx + (box.left + box.right) / 2f
     }
+}
+
+/** The fixed X the ORP letter is pinned to, in the list's layout coordinates. */
+private fun wordPin(listState: LazyListState, orpShiftPx: Float): Float {
+    val info = listState.layoutInfo
+    return (info.viewportStartOffset + info.viewportEndOffset) / 2f - orpShiftPx
+}
+
+/** Index of the visible word whose ORP letter is closest to the pin. */
+private fun pinnedWordIndex(listState: LazyListState, metrics: WordPinMetrics, orpShiftPx: Float): Int {
+    val pin = wordPin(listState, orpShiftPx)
+    return listState.layoutInfo.visibleItemsInfo
+        .minByOrNull { abs(it.offset + metrics.orpCenter(it.index) - pin) }?.index ?: 0
+}
+
+/** Scroll so the word's ORP letter sits exactly on the pin. */
+private suspend fun LazyListState.pinWord(
+    index: Int,
+    metrics: WordPinMetrics,
+    orpShiftPx: Float,
+    animate: Boolean,
+) {
+    if (index !in 0 until metrics.size) return
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index)
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val delta = item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
+    if (animate) animateScrollBy(delta) else scrollBy(delta)
 }
 
 @Composable

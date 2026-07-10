@@ -64,6 +64,13 @@ class ProgressStoreTest {
     }
 
     @Test
+    fun `word size defaults to 26 and persists`() = runStoreTest { store ->
+        assertEquals(26, store.wordSize.first())
+        store.setWordSize(32)
+        assertEquals(32, store.wordSize.first())
+    }
+
+    @Test
     fun `no continue snapshot by default`() = runStoreTest { store ->
         assertNull(store.continueSnapshot.first())
     }

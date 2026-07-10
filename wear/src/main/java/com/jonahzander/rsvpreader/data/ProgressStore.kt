@@ -34,6 +34,7 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
     private fun chapterKey(bookId: String) = intPreferencesKey("pos_${bookId}_chapter")
     private fun wordKey(bookId: String) = intPreferencesKey("pos_${bookId}_word")
     private val lastBookKey = stringPreferencesKey("last_book")
+    private val wordSizeKey = intPreferencesKey("word_size")
     private val snapBookKey = stringPreferencesKey("snap_book")
     private val snapTitleKey = stringPreferencesKey("snap_title")
     private val snapWordKey = stringPreferencesKey("snap_word")
@@ -47,6 +48,13 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
             wpm = prefs[wpmKey] ?: defaults.wpm,
             font = prefs[fontKey] ?: defaults.font,
         )
+    }
+
+    /** Reading word size in sp; watch-local (not synced from the phone). */
+    val wordSize: Flow<Int> = dataStore.data.map { it[wordSizeKey] ?: DEFAULT_WORD_SIZE }
+
+    suspend fun setWordSize(sp: Int) {
+        dataStore.edit { it[wordSizeKey] = sp }
     }
 
     /** Id of the most recently read book (last savePosition call), or null. */
@@ -106,5 +114,9 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
             it.remove(chapterKey(bookId))
             it.remove(wordKey(bookId))
         }
+    }
+
+    companion object {
+        const val DEFAULT_WORD_SIZE = 26
     }
 }

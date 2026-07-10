@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Chip
@@ -21,8 +23,10 @@ private val FONT_OPTIONS = listOf("default", "serif", "mono")
 @Composable
 fun SettingsScreen(
     settings: ReaderSettings,
+    wordSize: Int,
     onWpmChange: (Int) -> Unit,
     onFontChange: (String) -> Unit,
+    onWordSizeChange: (Int) -> Unit,
 ) {
     val listState = rememberScalingLazyListState()
     Scaffold(positionIndicator = { PositionIndicator(scalingLazyListState = listState) }) {
@@ -35,6 +39,20 @@ fun SettingsScreen(
                     onValueChange = { onWpmChange(it.toInt()) },
                     valueRange = 100f..900f,
                     steps = 31,
+                    decreaseIcon = { Text("−") },
+                    increaseIcon = { Text("+") },
+                    colors = InlineSliderDefaults.colors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item { ListHeader { Text("Word size") } }
+            item { Text("Aa  $wordSize", fontSize = wordSize.sp, fontFamily = fontFamilyFor(settings.font)) }
+            item {
+                InlineSlider(
+                    value = wordSize.toFloat(),
+                    onValueChange = { onWordSizeChange(it.roundToInt()) },
+                    valueRange = 20f..36f,
+                    steps = 7, // 2sp increments
                     decreaseIcon = { Text("−") },
                     increaseIcon = { Text("+") },
                     colors = InlineSliderDefaults.colors(),

@@ -19,6 +19,7 @@ import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.jonahzander.rsvpreader.ReaderApplication
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
+import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.sync.DataLayerImport
 import kotlinx.coroutines.launch
 
@@ -41,6 +42,7 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     }
     val books by app.bookRepository.books.collectAsStateWithLifecycle()
     val settings by app.progressStore.settings.collectAsStateWithLifecycle(ReaderSettings())
+    val wordSize by app.progressStore.wordSize.collectAsStateWithLifecycle(ProgressStore.DEFAULT_WORD_SIZE)
 
     var swipeBackEnabled by remember { mutableStateOf(true) }
     val activity = LocalContext.current as? Activity
@@ -83,6 +85,7 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
                 ReaderScreen(
                     viewModel = readerViewModel,
                     font = settings.font,
+                    wordSize = wordSize,
                     onScrubbingChanged = { swipeBackEnabled = !it },
                     onOpenChapters = {
                         navController.navigate("book/$bookId") {
@@ -98,8 +101,10 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
             composable("settings") {
                 SettingsScreen(
                     settings = settings,
+                    wordSize = wordSize,
                     onWpmChange = { scope.launch { app.progressStore.setWpm(it) } },
                     onFontChange = { scope.launch { app.progressStore.setFont(it) } },
+                    onWordSizeChange = { scope.launch { app.progressStore.setWordSize(it) } },
                 )
             }
         }

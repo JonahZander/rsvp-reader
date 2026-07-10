@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -116,6 +117,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
         Modifier
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
+                if (showSeekSheet) return@onRotaryScrollEvent true
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
                     repeat(kotlin.math.abs(steps)) {
@@ -136,29 +138,33 @@ private fun ReaderContent(session: ReaderSession, font: String) {
             .pointerInput(session) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
-                        session.pause()
-                        scrubbing = true
-                        dragDisplacement = 0f
-                        lastFrameMs = SystemClock.uptimeMillis()
-                        scrubMapper.reset()
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (!showSeekSheet) {
+                            session.pause()
+                            scrubbing = true
+                            dragDisplacement = 0f
+                            lastFrameMs = SystemClock.uptimeMillis()
+                            scrubMapper.reset()
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
                     },
                     onDrag = { change, dragAmount ->
-                        change.consume()
-                        dragDisplacement += dragAmount.x
-                        val now = SystemClock.uptimeMillis()
-                        val steps = scrubMapper.onFrame(dragDisplacement, now - lastFrameMs)
-                        lastFrameMs = now
-                        if (steps != 0) session.scrub(steps)
+                        if (scrubbing) {
+                            change.consume()
+                            dragDisplacement += dragAmount.x
+                            val now = SystemClock.uptimeMillis()
+                            val steps = scrubMapper.onFrame(dragDisplacement, now - lastFrameMs)
+                            lastFrameMs = now
+                            if (steps != 0) session.scrub(steps)
+                        }
                     },
                     onDragEnd = { scrubbing = false },
                     onDragCancel = { scrubbing = false },
                 )
             }
-            .pointerInput(Unit) {
+            .pointerInput(session) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
-                        if (dragAmount < -20f) { // decisive upward swipe
+                        if (dragAmount < -20f && !showSeekSheet) { // decisive upward swipe
                             change.consume()
                             session.pause()
                             showSeekSheet = true
@@ -167,7 +173,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                 )
             }
             .clickable {
-                if (!scrubbing) {
+                if (!scrubbing && !showSeekSheet) {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     session.togglePlay()
                 }
@@ -313,13 +319,16 @@ private fun SeekSheet(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colors.background)
-            .clickable(enabled = false) {}, // swallow taps under the sheet
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {}, // swallow taps under the sheet
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text("${(fraction * 100).roundToInt()} %", style = MaterialTheme.typography.title2)
         Text(
-            "word ${((fraction * (wordCount - 1).coerceAtLeast(0)).roundToInt() + 1)} of $wordCount",
+            "word ${((fraction * (wordCount - 1).coerceAtLeast(0)).roundToInt() + 1)} of ${wordCount.coerceAtLeast(1)}",
             style = MaterialTheme.typography.caption2,
             color = MaterialTheme.colors.onSurfaceVariant,
         )

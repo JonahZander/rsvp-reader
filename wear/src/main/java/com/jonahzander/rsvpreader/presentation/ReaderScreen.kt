@@ -2,6 +2,7 @@ package com.jonahzander.rsvpreader.presentation
 
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -140,7 +141,7 @@ private fun WordLineReader(
     session: ReaderSession,
     font: String,
     wordSize: Int,
-    @Suppress("UNUSED_PARAMETER") glide: Boolean, // Task 5: Line mode glides instead of snapping
+    glide: Boolean,
     onScrubbingChanged: (Boolean) -> Unit,
     chromeOpen: () -> Boolean,
     showOverlay: (String) -> Unit,
@@ -207,11 +208,21 @@ private fun WordLineReader(
     }
     val flingBehavior = rememberSnapFlingBehavior(listState, snapPosition)
 
-    // Playback drives the line: each new word snaps its ORP letter onto the pin.
-    LaunchedEffect(state.isPlaying, metrics) {
+    // Playback drives the line: RSVP snaps each new word's ORP letter onto the
+    // pin instantly; Line mode glides there at a linear pace lasting exactly
+    // that word's RSVP duration, giving a continuous teleprompter crawl.
+    LaunchedEffect(state.isPlaying, metrics, glide) {
         if (state.isPlaying) {
-            snapshotFlow { state.wordIndex }
-                .collect { listState.pinWord(it, metrics, orpShiftPx, animate = false) }
+            snapshotFlow { state.wordIndex }.collect { index ->
+                if (glide) {
+                    val duration = RsvpEngine
+                        .durationMs(chapterWords.getOrElse(index) { "" }, session.state.value.wpm)
+                        .toInt()
+                    listState.glideToWord(index, metrics, orpShiftPx, duration)
+                } else {
+                    listState.pinWord(index, metrics, orpShiftPx, animate = false)
+                }
+            }
         }
     }
 
@@ -246,9 +257,10 @@ private fun WordLineReader(
         }
     }
 
-    // Neighbors fade in when pausing and out when reading resumes.
+    // Neighbors fade in when pausing and out when reading resumes — except in
+    // Line mode, where they stay visible throughout the glide.
     val neighborAlpha by animateFloatAsState(
-        targetValue = if (state.isPlaying) 0f else 1f,
+        targetValue = if (state.isPlaying && !glide) 0f else 1f,
         animationSpec = tween(250),
         label = "neighborAlpha",
     )
@@ -422,4 +434,20 @@ private suspend fun LazyListState.pinWord(
     val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
     val delta = item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
     if (animate) animateScrollBy(delta) else scrollBy(delta)
+}
+
+/** Glides the word onto the pin over [durationMs] — the teleprompter crawl of Line mode. */
+private suspend fun LazyListState.glideToWord(
+    index: Int,
+    metrics: WordPinMetrics,
+    orpShiftPx: Float,
+    durationMs: Int,
+) {
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (item == null) {
+        pinWord(index, metrics, orpShiftPx, animate = false)
+        return
+    }
+    val delta = item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
+    animateScrollBy(delta, tween(durationMs.coerceAtLeast(1), easing = LinearEasing))
 }

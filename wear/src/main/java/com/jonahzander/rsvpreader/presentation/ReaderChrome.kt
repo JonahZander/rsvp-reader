@@ -1,5 +1,6 @@
 package com.jonahzander.rsvpreader.presentation
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -61,7 +62,7 @@ class OverlayTextState {
 
     fun show(text: String) {
         _text.value = text
-        until = System.currentTimeMillis() + 1200
+        until = SystemClock.uptimeMillis() + 1200
     }
 
     internal fun hide() {
@@ -75,7 +76,7 @@ fun rememberOverlayTextState(): OverlayTextState {
     LaunchedEffect(overlay.until) {
         if (overlay.until > 0) {
             delay(1300)
-            if (System.currentTimeMillis() >= overlay.until) overlay.hide()
+            if (SystemClock.uptimeMillis() >= overlay.until) overlay.hide()
         }
     }
     return overlay
@@ -87,6 +88,8 @@ fun rememberOverlayTextState(): OverlayTextState {
  * Mode content renders inside; [content] receives `chromeOpen` — true while a
  * sheet or the menu is showing, so content should ignore its own taps — and
  * `openMenu` for modes that summon the menu themselves (e.g. long-press).
+ * [seekSheetEnabled] has no effect when [menuTrigger] is [MenuTrigger.LongPress],
+ * since the sheet is only reachable via the swipe-down drag handler.
  */
 @Composable
 fun ReaderChrome(

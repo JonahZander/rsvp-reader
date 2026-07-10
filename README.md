@@ -36,6 +36,13 @@ Requires JDK 17+ and the Android SDK (platform 35).
 Both apps share the `com.jonahzander.rsvpreader` application id and must be
 signed with the same key for the Data Layer to route between them.
 
+Debug builds scroll poorly on real watches (no R8/AOT — a known Wear OS
+Compose limitation). For actual use install the release build:
+
+    ./gradlew :wear:assembleRelease :mobile:assembleRelease
+    adb -s <watch> install -r wear/build/outputs/apk/release/wear-release.apk
+    adb -s <phone> install -r mobile/build/outputs/apk/release/mobile-release.apk
+
 ## Reading controls (watch)
 
 | Input | Playing | Paused |

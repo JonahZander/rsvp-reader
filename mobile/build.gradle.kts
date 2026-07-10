@@ -21,6 +21,7 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -61,6 +62,11 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.epub4j.core) {
         exclude(group = "net.sf.kxml", module = "kxml2")
+        // org.xmlpull.v1.XmlPullParser is already provided by the Android
+        // platform; bundling this artifact's copy as a program class makes
+        // R8 fail with "Library class android.content.res.XmlResourceParser
+        // implements program class org.xmlpull.v1.XmlPullParser".
+        exclude(group = "xmlpull", module = "xmlpull")
     }
 
     testImplementation(libs.junit)

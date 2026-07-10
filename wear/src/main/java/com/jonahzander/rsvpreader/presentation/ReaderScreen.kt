@@ -160,7 +160,8 @@ fun ReaderScreen(
                 onOpenLibrary = onOpenLibrary,
                 onOpenSettings = onOpenSettings,
                 onExit = onExit,
-                showOverlayText = remember { mutableStateOf(null) },
+                // Scroll mode has no overlay text (no wpm/word readouts).
+                showOverlayText = remember { mutableStateOf<String?>(null) },
             ) { chromeOpen, openMenu ->
                 ScrollReader(
                     session = current,

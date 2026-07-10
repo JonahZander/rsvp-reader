@@ -6,7 +6,6 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,7 +16,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -44,9 +42,9 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RsvpEngine
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
 
 /**
  * Scroll mode: the chapter as one vertical column of text that auto-scrolls
@@ -70,7 +68,6 @@ fun ScrollReader(
     val view = LocalView.current
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -118,8 +115,8 @@ fun ScrollReader(
 
     // Keep the screen on only while auto-scrolling — and never leak the flag
     // when the composable goes away mid-scroll.
-    LaunchedEffect(autoScrolling) { view.keepScreenOn = autoScrolling }
-    DisposableEffect(view) {
+    DisposableEffect(autoScrolling) {
+        view.keepScreenOn = autoScrolling
         onDispose { view.keepScreenOn = false }
     }
 
@@ -132,7 +129,10 @@ fun ScrollReader(
             if (!autoScrolling && !scrollState.isScrollInProgress && idx != topWordIndex(l)) {
                 val offset = tokens.getOrNull(idx)?.startOffset ?: 0
                 val line = l.getLineForOffset(offset.coerceAtMost((text.length - 1).coerceAtLeast(0)))
-                scrollState.scrollTo((l.getLineTop(line) + topPadPx).roundToInt())
+                // Truncate, never round up: landing a fraction of a pixel past
+                // the line top would make topWordIndex skip to the next line,
+                // creeping the position forward on every reopen.
+                scrollState.scrollTo((l.getLineTop(line) + topPadPx).toInt())
             }
         }
     }
@@ -150,14 +150,20 @@ fun ScrollReader(
             val lineH = (l.size.height.toFloat() / l.lineCount).coerceAtLeast(1f)
             while (scrollState.value < scrollState.maxValue) {
                 scrollState.animateScrollBy(lineH, tween(msPerLine, easing = LinearEasing))
+                // Keep the session index current (no persist) so leaving
+                // mid-scroll — menu, swipe-back, dispose — saves the words
+                // actually read, not the pre-scroll position. The restore
+                // follower ignores these: it is gated on !autoScrolling.
+                session.jumpToWord(topWordIndex(l))
             }
         }
         autoScrolling = false // reached the end of the chapter (or nothing to scroll)
         saveTopWord()
     }
 
-    // Any user drag stops auto-scroll (the programmatic animation reports
-    // SideEffect, not UserInput, so it never cancels itself).
+    // Any user drag stops auto-scroll. The programmatic animateScrollBy acts
+    // on the ScrollState directly and bypasses nested-scroll dispatch
+    // entirely, so it can never cancel itself here.
     val stopOnUserScroll = remember(text) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -167,15 +173,22 @@ fun ScrollReader(
         }
     }
 
-    // Persist whenever a manual scroll settles. drop(1) skips the initial
-    // at-rest emission, so composing never writes word 0 over a position the
-    // session is still restoring.
+    // Persist once the column has been at rest for a moment. Watching the
+    // value as well as isScrollInProgress covers crown motion, whose raw
+    // deltas never set isScrollInProgress; collectLatest restarts the timer
+    // on every movement, debouncing per-event saves into one DataStore write.
+    // drop(1) skips the initial at-rest emission, so composing never writes
+    // word 0 over a position the session is still restoring.
     LaunchedEffect(layout) {
         if (layout == null) return@LaunchedEffect
-        snapshotFlow { scrollState.isScrollInProgress }
+        snapshotFlow { scrollState.value to scrollState.isScrollInProgress }
             .drop(1)
-            .filter { !it }
-            .collect { if (!autoScrolling) saveTopWord() }
+            .collectLatest { (_, inProgress) ->
+                if (!inProgress) {
+                    delay(250)
+                    if (!autoScrolling) saveTopWord()
+                }
+            }
     }
 
     Column(
@@ -184,7 +197,10 @@ fun ScrollReader(
             .onRotaryScrollEvent { event ->
                 if (chromeOpen()) return@onRotaryScrollEvent true
                 autoScrolling = false
-                scope.launch { scrollState.scrollBy(event.verticalScrollPixels) }
+                // Synchronous raw delta (no coroutine per event); it bypasses
+                // isScrollInProgress, which is why the settle-save watches the
+                // scroll value too.
+                scrollState.dispatchRawDelta(event.verticalScrollPixels)
                 true
             }
             .focusRequester(focusRequester)
@@ -207,6 +223,9 @@ fun ScrollReader(
                         if (!chromeOpen()) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             autoScrolling = false
+                            // Save here: the cancelled auto-scroll effect never
+                            // reaches its own post-loop save.
+                            saveTopWord()
                             openMenu()
                         }
                     },

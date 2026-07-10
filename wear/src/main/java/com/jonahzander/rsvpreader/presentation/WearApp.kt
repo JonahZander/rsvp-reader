@@ -43,7 +43,8 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     val books by app.bookRepository.books.collectAsStateWithLifecycle()
     val settings by app.progressStore.settings.collectAsStateWithLifecycle(ReaderSettings())
     val wordSize by app.progressStore.wordSize.collectAsStateWithLifecycle(ProgressStore.DEFAULT_WORD_SIZE)
-    val readingMode by app.progressStore.readingMode.collectAsStateWithLifecycle("rsvp")
+    val readingModeKey by app.progressStore.readingMode.collectAsStateWithLifecycle(ReadingMode.Rsvp.key)
+    val readingMode = ReadingMode.fromKey(readingModeKey)
 
     var swipeBackEnabled by remember { mutableStateOf(true) }
     val activity = LocalContext.current as? Activity
@@ -87,7 +88,7 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
                     viewModel = readerViewModel,
                     font = settings.font,
                     wordSize = wordSize,
-                    mode = ReadingMode.fromKey(readingMode),
+                    mode = readingMode,
                     onScrubbingChanged = { swipeBackEnabled = !it },
                     onOpenChapters = {
                         navController.navigate("book/$bookId") {
@@ -104,7 +105,7 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
                 SettingsScreen(
                     settings = settings,
                     wordSize = wordSize,
-                    readingMode = ReadingMode.fromKey(readingMode),
+                    readingMode = readingMode,
                     onWpmChange = { scope.launch { app.progressStore.setWpm(it) } },
                     onFontChange = { scope.launch { app.progressStore.setFont(it) } },
                     onWordSizeChange = { scope.launch { app.progressStore.setWordSize(it) } },

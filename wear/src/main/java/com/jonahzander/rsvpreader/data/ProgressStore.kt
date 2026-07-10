@@ -24,6 +24,7 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
     private val fontKey = stringPreferencesKey("font")
     private fun chapterKey(bookId: String) = intPreferencesKey("pos_${bookId}_chapter")
     private fun wordKey(bookId: String) = intPreferencesKey("pos_${bookId}_word")
+    private val lastBookKey = stringPreferencesKey("last_book")
 
     private val defaults = ReaderSettings()
 
@@ -33,6 +34,9 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
             font = prefs[fontKey] ?: defaults.font,
         )
     }
+
+    /** Id of the most recently read book (last savePosition call), or null. */
+    val lastBookId: Flow<String?> = dataStore.data.map { it[lastBookKey] }
 
     suspend fun setWpm(wpm: Int) {
         dataStore.edit { it[wpmKey] = wpm }
@@ -60,6 +64,7 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit {
             it[chapterKey(bookId)] = position.chapterIndex
             it[wordKey(bookId)] = position.wordIndex
+            it[lastBookKey] = bookId
         }
     }
 

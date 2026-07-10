@@ -12,6 +12,7 @@ import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class ProgressStoreTest {
 
@@ -60,6 +61,18 @@ class ProgressStoreTest {
         store.savePosition("book-b", ReadingPosition(chapterIndex = 1, wordIndex = 5))
         assertEquals(ReadingPosition(2, 41), store.position("book-a").first())
         assertEquals(ReadingPosition(1, 5), store.position("book-b").first())
+    }
+
+    @Test
+    fun `no last book by default`() = runStoreTest { store ->
+        assertNull(store.lastBookId.first())
+    }
+
+    @Test
+    fun `savePosition records the last book read`() = runStoreTest { store ->
+        store.savePosition("book-a", ReadingPosition(1, 2))
+        store.savePosition("book-b", ReadingPosition(0, 0))
+        assertEquals("book-b", store.lastBookId.first())
     }
 
     @Test

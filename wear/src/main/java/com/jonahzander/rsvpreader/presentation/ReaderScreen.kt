@@ -63,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
+import androidx.wear.compose.material.CompactChip
 import androidx.wear.compose.material.InlineSlider
 import androidx.wear.compose.material.InlineSliderDefaults
 import androidx.wear.compose.material.MaterialTheme
@@ -87,6 +88,10 @@ fun ReaderScreen(
     viewModel: ReaderViewModel,
     font: String,
     onScrubbingChanged: (Boolean) -> Unit,
+    onOpenChapters: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onExit: () -> Unit,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val current = session
@@ -96,7 +101,7 @@ fun ReaderScreen(
         }
         return
     }
-    ReaderContent(current, font, onScrubbingChanged)
+    ReaderContent(current, font, onScrubbingChanged, onOpenChapters, onOpenLibrary, onOpenSettings, onExit)
 }
 
 @Composable
@@ -104,6 +109,10 @@ private fun ReaderContent(
     session: ReaderSession,
     font: String,
     onScrubbingChanged: (Boolean) -> Unit,
+    onOpenChapters: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onExit: () -> Unit,
 ) {
     val state by session.state.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
@@ -177,6 +186,10 @@ private fun ReaderContent(
     var sheetVisible by remember { mutableStateOf(false) }
     val sheetOffset = remember { Animatable(1f) }
 
+    // Menu slides in from the top: offset 1 = hidden above, 0 = fully open.
+    var menuVisible by remember { mutableStateOf(false) }
+    val menuOffset = remember { Animatable(1f) }
+
     fun dismissSheet() {
         scope.launch {
             sheetOffset.animateTo(1f, tween(200))
@@ -196,11 +209,30 @@ private fun ReaderContent(
         }
     }
 
+    fun dismissMenu() {
+        scope.launch {
+            menuOffset.animateTo(1f, tween(200))
+            menuVisible = false
+        }
+    }
+
+    /** After the finger lifts, snap the menu fully open or dismiss it. */
+    fun settleMenu() {
+        scope.launch {
+            if (menuOffset.value < 0.5f) {
+                menuOffset.animateTo(0f, tween(200))
+            } else {
+                menuOffset.animateTo(1f, tween(200))
+                menuVisible = false
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
-                if (sheetVisible) return@onRotaryScrollEvent true
+                if (sheetVisible || menuVisible) return@onRotaryScrollEvent true
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
                     repeat(kotlin.math.abs(steps)) {
@@ -229,7 +261,7 @@ private fun ReaderContent(
                 // Long-press enters scrub mode; keeping the finger down drags the line directly.
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
-                        if (!sheetVisible) {
+                        if (!sheetVisible && !menuVisible) {
                             if (!scrubbing) {
                                 session.pause()
                                 scrubbing = true
@@ -252,25 +284,47 @@ private fun ReaderContent(
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
                         val height = size.height.toFloat().coerceAtLeast(1f)
-                        if (sheetVisible) {
-                            // Sheet follows the finger in both directions.
-                            change.consume()
-                            val target = (sheetOffset.value + dragAmount / height).coerceIn(0f, 1f)
-                            scope.launch { sheetOffset.snapTo(target) }
-                        } else if (dragAmount < -6f) {
-                            // Upward pull starts dragging the sheet in from the bottom.
-                            change.consume()
-                            session.pause()
-                            sheetVisible = true
-                            scope.launch { sheetOffset.snapTo((1f + dragAmount / height).coerceIn(0f, 1f)) }
+                        when {
+                            sheetVisible -> {
+                                // Sheet follows the finger in both directions.
+                                change.consume()
+                                val target = (sheetOffset.value + dragAmount / height).coerceIn(0f, 1f)
+                                scope.launch { sheetOffset.snapTo(target) }
+                            }
+                            menuVisible -> {
+                                // Menu follows the finger: dragging down opens, up hides.
+                                change.consume()
+                                val target = (menuOffset.value - dragAmount / height).coerceIn(0f, 1f)
+                                scope.launch { menuOffset.snapTo(target) }
+                            }
+                            dragAmount < -6f -> {
+                                // Upward pull drags the seek sheet in from the bottom.
+                                change.consume()
+                                session.pause()
+                                sheetVisible = true
+                                scope.launch { sheetOffset.snapTo((1f + dragAmount / height).coerceIn(0f, 1f)) }
+                            }
+                            dragAmount > 6f -> {
+                                // Downward pull drags the menu in from the top.
+                                change.consume()
+                                session.pause()
+                                menuVisible = true
+                                scope.launch { menuOffset.snapTo((1f - dragAmount / height).coerceIn(0f, 1f)) }
+                            }
                         }
                     },
-                    onDragEnd = { if (sheetVisible) settleSheet() },
-                    onDragCancel = { if (sheetVisible) settleSheet() },
+                    onDragEnd = {
+                        if (sheetVisible) settleSheet()
+                        if (menuVisible) settleMenu()
+                    },
+                    onDragCancel = {
+                        if (sheetVisible) settleSheet()
+                        if (menuVisible) settleMenu()
+                    },
                 )
             }
             .clickable {
-                if (!sheetVisible && !longPressGestureActive) {
+                if (!sheetVisible && !menuVisible && !longPressGestureActive) {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     if (scrubbing) scrubbing = false
                     session.togglePlay()
@@ -334,6 +388,17 @@ private fun ReaderContent(
                 onSeek = { fraction -> session.seekToFraction(fraction) },
                 onDismiss = { dismissSheet() },
                 modifier = Modifier.graphicsLayer { translationY = sheetOffset.value * size.height },
+            )
+        }
+
+        if (menuVisible) {
+            ReaderMenu(
+                onChapters = onOpenChapters,
+                onLibrary = onOpenLibrary,
+                onSettings = onOpenSettings,
+                onExit = onExit,
+                onDismiss = { dismissMenu() },
+                modifier = Modifier.graphicsLayer { translationY = -menuOffset.value * size.height },
             )
         }
     }
@@ -425,6 +490,43 @@ private suspend fun LazyListState.centerOnWord(index: Int) {
     val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
     val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
     scrollBy(item.offset + item.size / 2f - center)
+}
+
+@Composable
+private fun ReaderMenu(
+    onChapters: () -> Unit,
+    onLibrary: () -> Unit,
+    onSettings: () -> Unit,
+    onExit: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    @Composable
+    fun MenuChip(label: String, onClick: () -> Unit) {
+        CompactChip(
+            onClick = onClick,
+            label = { Text(label) },
+            colors = ChipDefaults.secondaryChipColors(),
+            modifier = Modifier.fillMaxWidth(0.7f),
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colors.background)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { onDismiss() }, // tap outside the chips closes the menu
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+    ) {
+        MenuChip("Chapters", onChapters)
+        MenuChip("Library", onLibrary)
+        MenuChip("Settings", onSettings)
+        MenuChip("Exit reader", onExit)
+    }
 }
 
 @Composable

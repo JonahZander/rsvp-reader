@@ -126,7 +126,6 @@ fun ReaderScreen(
             }
         }
         ReadingMode.Paged -> {
-            val overlay = rememberOverlayTextState()
             // Paged has no swipeable line, so swipe-back stays enabled throughout.
             LaunchedEffect(Unit) { onScrubbingChanged(false) }
             ReaderChrome(
@@ -137,7 +136,8 @@ fun ReaderScreen(
                 onOpenLibrary = onOpenLibrary,
                 onOpenSettings = onOpenSettings,
                 onExit = onExit,
-                showOverlayText = overlay.text,
+                // Paged mode shows no overlay text.
+                showOverlayText = remember { mutableStateOf<String?>(null) },
             ) { chromeOpen, _ ->
                 PagedReader(
                     session = current,

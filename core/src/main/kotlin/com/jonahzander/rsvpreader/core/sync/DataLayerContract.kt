@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 object DataLayerContract {
     const val BOOKS_PATH_PREFIX = "/books/"
     const val SETTINGS_PATH = "/settings"
+    const val ACKS_PATH_PREFIX = "/acks/"
 
     const val ASSET_BOOK = "book"
     const val KEY_TITLE = "title"
@@ -27,6 +28,13 @@ object DataLayerContract {
     fun bookIdFromPath(path: String): String? =
         path.takeIf { it.startsWith(BOOKS_PATH_PREFIX) }
             ?.removePrefix(BOOKS_PATH_PREFIX)
+            ?.takeIf { it.isNotBlank() }
+
+    fun ackPath(id: String): String = ACKS_PATH_PREFIX + id
+
+    fun ackIdFromPath(path: String): String? =
+        path.takeIf { it.startsWith(ACKS_PATH_PREFIX) }
+            ?.removePrefix(ACKS_PATH_PREFIX)
             ?.takeIf { it.isNotBlank() }
 
     fun encodeBook(book: Book): ByteArray =

@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -96,7 +97,7 @@ private fun ReaderContent(session: ReaderSession, font: String) {
 
     val density = LocalDensity.current
     val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
-    val scrubMapper = remember { ScrubMapper(deadZonePx = with(density) { 12.dp.toPx() }, gain = 0.002f) }
+    val scrubMapper = remember(density) { ScrubMapper(deadZonePx = with(density) { 12.dp.toPx() }, gain = 0.002f) }
     var scrubbing by remember { mutableStateOf(false) }
     var dragDisplacement by remember { mutableFloatStateOf(0f) }
     var lastFrameMs by remember { mutableLongStateOf(0L) }
@@ -145,8 +146,10 @@ private fun ReaderContent(session: ReaderSession, font: String) {
                 )
             }
             .clickable {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                session.togglePlay()
+                if (!scrubbing) {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    session.togglePlay()
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -221,23 +224,48 @@ private fun ScrubRibbon(session: ReaderSession, font: String) {
     val state by session.state.collectAsStateWithLifecycle()
     val neighbors = remember(state.wordIndex, state.chapterIndex) { session.neighborWords() }
     val family = fontFamilyFor(font)
+    val center = neighbors.size / 2
+
+    @Composable
+    fun NeighborText(word: String?) {
+        Text(
+            text = word ?: "",
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontFamily = family,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal,
+            color = MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        neighbors.forEachIndexed { i, word ->
-            val isCurrent = i == neighbors.size / 2
-            Text(
-                text = word ?: "",
-                maxLines = 1,
-                fontFamily = family,
-                fontSize = if (isCurrent) 22.sp else 13.sp,
-                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-                color = if (isCurrent) MaterialTheme.colors.onBackground
-                else MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            neighbors.take(center).forEach { NeighborText(it) }
+        }
+        Text(
+            text = neighbors[center] ?: "",
+            maxLines = 1,
+            fontFamily = family,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colors.onBackground,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            neighbors.drop(center + 1).forEach { NeighborText(it) }
         }
     }
 }

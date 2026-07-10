@@ -46,6 +46,9 @@ class ReaderSession(
     private val _state = MutableStateFlow(ReaderState())
     val state: StateFlow<ReaderState> = _state
 
+    /** Number of chapters in the book (for chapter-cross guards in non-RSVP modes). */
+    val chapterCount: Int get() = book.chapters.size
+
     private var playJob: Job? = null
 
     init {

@@ -102,8 +102,8 @@ fun ReaderScreen(
         return
     }
     when (mode) {
-        // Paged (Task 6) and Scroll (Task 7) fall back to the word line until implemented.
-        ReadingMode.Rsvp, ReadingMode.Line, ReadingMode.Paged, ReadingMode.Scroll -> {
+        // Scroll (Task 7) falls back to the word line until implemented.
+        ReadingMode.Rsvp, ReadingMode.Line, ReadingMode.Scroll -> {
             val overlay = rememberOverlayTextState()
             ReaderChrome(
                 session = current,
@@ -123,6 +123,28 @@ fun ReaderScreen(
                     onScrubbingChanged = onScrubbingChanged,
                     chromeOpen = chromeOpen,
                     showOverlay = overlay::show,
+                )
+            }
+        }
+        ReadingMode.Paged -> {
+            val overlay = rememberOverlayTextState()
+            // Paged has no swipeable line, so swipe-back stays enabled throughout.
+            LaunchedEffect(Unit) { onScrubbingChanged(false) }
+            ReaderChrome(
+                session = current,
+                menuTrigger = MenuTrigger.SwipeDown,
+                seekSheetEnabled = true,
+                onOpenChapters = onOpenChapters,
+                onOpenLibrary = onOpenLibrary,
+                onOpenSettings = onOpenSettings,
+                onExit = onExit,
+                showOverlayText = overlay.text,
+            ) { chromeOpen, _ ->
+                PagedReader(
+                    session = current,
+                    font = font,
+                    wordSize = wordSize,
+                    chromeOpen = chromeOpen,
                 )
             }
         }
@@ -213,6 +235,8 @@ private fun WordLineReader(
     // that word's RSVP duration, giving a continuous teleprompter crawl.
     LaunchedEffect(state.isPlaying, metrics, glide) {
         if (state.isPlaying) {
+            // snapshotFlow conflates: a word missed while a glide is in flight is
+            // skipped, and the next glide simply catches up from wherever it is.
             snapshotFlow { state.wordIndex }.collect { index ->
                 if (glide) {
                     val duration = RsvpEngine
@@ -422,6 +446,12 @@ private fun pinnedWordIndex(listState: LazyListState, metrics: WordPinMetrics, o
         .minByOrNull { abs(it.offset + metrics.orpCenter(it.index) - pin) }?.index ?: 0
 }
 
+/** Scroll delta that puts the visible word's ORP letter on the pin, or null if not laid out. */
+private fun LazyListState.deltaToPin(index: Int, metrics: WordPinMetrics, orpShiftPx: Float): Float? {
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return null
+    return item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
+}
+
 /** Scroll so the word's ORP letter sits exactly on the pin. */
 private suspend fun LazyListState.pinWord(
     index: Int,
@@ -431,8 +461,7 @@ private suspend fun LazyListState.pinWord(
 ) {
     if (index !in 0 until metrics.size) return
     if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index)
-    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
-    val delta = item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
+    val delta = deltaToPin(index, metrics, orpShiftPx) ?: return
     if (animate) animateScrollBy(delta) else scrollBy(delta)
 }
 
@@ -443,11 +472,10 @@ private suspend fun LazyListState.glideToWord(
     orpShiftPx: Float,
     durationMs: Int,
 ) {
-    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-    if (item == null) {
+    val delta = deltaToPin(index, metrics, orpShiftPx)
+    if (delta == null) {
         pinWord(index, metrics, orpShiftPx, animate = false)
         return
     }
-    val delta = item.offset + metrics.orpCenter(index) - wordPin(this, orpShiftPx)
     animateScrollBy(delta, tween(durationMs.coerceAtLeast(1), easing = LinearEasing))
 }

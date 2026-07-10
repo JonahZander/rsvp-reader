@@ -74,6 +74,8 @@ import com.jonahzander.rsvpreader.core.RotaryAccumulator
 import com.jonahzander.rsvpreader.core.RsvpEngine
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
@@ -153,6 +155,8 @@ private fun ReaderContent(
     var scrubbing by remember { mutableStateOf(false) }
     // True while the finger that entered scrub mode is still down, so its release isn't a "tap".
     var longPressGestureActive by remember { mutableStateOf(false) }
+    // Debounces the snap-to-center after the crown stops turning.
+    var rotarySettleJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(scrubbing) { onScrubbingChanged(scrubbing) }
     // Never leave the nav host with swipe-back stuck off.
@@ -239,6 +243,18 @@ private fun ReaderContent(
             .fillMaxSize()
             .onRotaryScrollEvent { event ->
                 if (sheetVisible || menuVisible) return@onRotaryScrollEvent true
+                if (scrubbing) {
+                    // Crown scrolls the line 1:1 like a finger drag; once the
+                    // crown rests, glide the nearest word into the center.
+                    scope.launch { scrubListState.scrollBy(event.verticalScrollPixels) }
+                    rotarySettleJob?.cancel()
+                    rotarySettleJob = scope.launch {
+                        delay(180)
+                        scrubListState.animateCenterOnWord(centeredItemIndex(scrubListState))
+                    }
+                    showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
+                    return@onRotaryScrollEvent true
+                }
                 val steps = rotary.onScroll(event.verticalScrollPixels, SystemClock.uptimeMillis())
                 if (steps != 0) {
                     repeat(kotlin.math.abs(steps)) {
@@ -247,13 +263,6 @@ private fun ReaderContent(
                     if (state.isPlaying) {
                         session.adjustWpm(steps * 10)
                         showOverlay("${session.state.value.wpm} wpm")
-                    } else if (scrubbing) {
-                        scope.launch {
-                            val target = (centeredItemIndex(scrubListState) + steps)
-                                .coerceIn(0, (chapterWords.size - 1).coerceAtLeast(0))
-                            scrubListState.animateCenterOnWord(target)
-                        }
-                        showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
                     } else {
                         session.scrub(steps)
                         showOverlay("${session.state.value.wordIndex + 1} / ${state.chapterWordCount}")
@@ -332,8 +341,20 @@ private fun ReaderContent(
             .clickable {
                 if (!sheetVisible && !menuVisible && !longPressGestureActive) {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (scrubbing) scrubbing = false
-                    session.togglePlay()
+                    when {
+                        // Tap while scrubbing: read on from the centered word.
+                        scrubbing -> {
+                            scrubbing = false
+                            session.togglePlay()
+                        }
+                        // Tap while reading: pause straight into the scrub line.
+                        state.isPlaying -> {
+                            session.pause()
+                            scrubbing = true
+                        }
+                        // Tap while paused/finished: play.
+                        else -> session.togglePlay()
+                    }
                 }
             },
         contentAlignment = Alignment.Center,

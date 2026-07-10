@@ -35,6 +35,9 @@ class ReaderSession(
     private val book: Book,
     private val progressStore: ProgressStore,
     private val scope: CoroutineScope,
+    // Saves must outlive the playback scope: the ViewModel's scope is already
+    // cancelled when onCleared pauses the session on the way out.
+    private val saveScope: CoroutineScope = scope,
     private val onPositionSaved: () -> Unit = {},
 ) {
     private val chapterWords: List<List<String>> =
@@ -176,7 +179,7 @@ class ReaderSession(
 
     private fun savePosition() {
         val s = _state.value
-        scope.launch {
+        saveScope.launch {
             progressStore.savePosition(
                 book.id,
                 ReadingPosition(s.chapterIndex, s.wordIndex),

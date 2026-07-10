@@ -48,7 +48,7 @@ class ReaderSessionTest {
             book,
             store,
             CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob()),
-            onPositionSaved,
+            onPositionSaved = onPositionSaved,
         )
         runCurrent()
         return session to store
@@ -249,6 +249,25 @@ class ReaderSessionTest {
             ),
             store.continueSnapshot.first(),
         )
+    }
+
+    @Test
+    fun `pause after playback scope cancellation still saves via the save scope`() = runTest {
+        val dsScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val store = ProgressStore(
+            PreferenceDataStoreFactory.create(scope = dsScope) {
+                tmp.newFolder().resolve("p.preferences_pb")
+            }
+        )
+        val playScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val saveScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val session = ReaderSession(book, store, playScope, saveScope)
+        runCurrent()
+        session.jumpToWord(1)
+        playScope.cancel() // what ViewModel clearing does to viewModelScope
+        session.pause()
+        runCurrent()
+        assertEquals(ReadingPosition(0, 1), store.position("b").first())
     }
 
     @Test

@@ -24,7 +24,7 @@ class ReaderViewModel(
         viewModelScope.launch {
             app.bookRepository.refresh()
             val book = app.bookRepository.get(bookId) ?: return@launch
-            val session = ReaderSession(book, app.progressStore, viewModelScope) {
+            val session = ReaderSession(book, app.progressStore, viewModelScope, saveScope = app.appScope) {
                 TileService.getUpdater(app).requestUpdate(ContinueReadingTileService::class.java)
             }
             if (startChapter != null) session.jumpToChapter(startChapter)

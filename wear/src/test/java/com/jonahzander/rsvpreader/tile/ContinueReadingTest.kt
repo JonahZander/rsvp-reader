@@ -3,6 +3,7 @@ package com.jonahzander.rsvpreader.tile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.jonahzander.rsvpreader.core.model.Book
 import com.jonahzander.rsvpreader.core.model.Chapter
+import com.jonahzander.rsvpreader.data.ContinueSnapshot
 import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.data.ReadingPosition
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +62,33 @@ class ContinueReadingTest {
             ),
             info,
         )
+    }
+
+    @Test
+    fun `matching snapshot is used without loading the book`() = runStoreTest { store ->
+        store.savePosition(
+            "b",
+            ReadingPosition(1, 1),
+            ContinueSnapshot("b", "Test Book", "five", 2, 2),
+        )
+        val info = loadContinueReadingInfo(store) { error("must not load the book") }
+        assertEquals(
+            ContinueReadingInfo(
+                bookId = "b",
+                bookTitle = "Test Book",
+                lastWord = "five",
+                chapterNumber = 2,
+                chapterCount = 2,
+            ),
+            info,
+        )
+    }
+
+    @Test
+    fun `snapshot for a different book falls back to loading`() = runStoreTest { store ->
+        store.savePosition("b", ReadingPosition(0, 0), ContinueSnapshot("other", "Other", "x", 1, 1))
+        val info = loadContinueReadingInfo(store) { book }
+        assertEquals("one", info?.lastWord)
     }
 
     @Test

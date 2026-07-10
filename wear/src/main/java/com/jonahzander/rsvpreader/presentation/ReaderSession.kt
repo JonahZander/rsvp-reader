@@ -2,6 +2,7 @@ package com.jonahzander.rsvpreader.presentation
 
 import com.jonahzander.rsvpreader.core.RsvpEngine
 import com.jonahzander.rsvpreader.core.model.Book
+import com.jonahzander.rsvpreader.data.ContinueSnapshot
 import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.data.ReadingPosition
 import kotlinx.coroutines.CoroutineScope
@@ -176,7 +177,17 @@ class ReaderSession(
     private fun savePosition() {
         val s = _state.value
         scope.launch {
-            progressStore.savePosition(book.id, ReadingPosition(s.chapterIndex, s.wordIndex))
+            progressStore.savePosition(
+                book.id,
+                ReadingPosition(s.chapterIndex, s.wordIndex),
+                ContinueSnapshot(
+                    bookId = book.id,
+                    bookTitle = book.title,
+                    word = s.word,
+                    chapterNumber = s.chapterIndex + 1,
+                    chapterCount = book.chapters.size,
+                ),
+            )
             onPositionSaved()
         }
     }

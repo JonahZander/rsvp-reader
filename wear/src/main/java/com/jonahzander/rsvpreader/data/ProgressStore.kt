@@ -14,6 +14,15 @@ data class ReadingPosition(
     val wordIndex: Int = 0,
 )
 
+/** Ready-made tile content, written alongside every position save so the tile never loads a book. */
+data class ContinueSnapshot(
+    val bookId: String,
+    val bookTitle: String,
+    val word: String,
+    val chapterNumber: Int,
+    val chapterCount: Int,
+)
+
 /**
  * Reader settings (WPM, font) and per-book reading positions,
  * backed by Preferences DataStore.
@@ -25,6 +34,11 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
     private fun chapterKey(bookId: String) = intPreferencesKey("pos_${bookId}_chapter")
     private fun wordKey(bookId: String) = intPreferencesKey("pos_${bookId}_word")
     private val lastBookKey = stringPreferencesKey("last_book")
+    private val snapBookKey = stringPreferencesKey("snap_book")
+    private val snapTitleKey = stringPreferencesKey("snap_title")
+    private val snapWordKey = stringPreferencesKey("snap_word")
+    private val snapChapterNumKey = intPreferencesKey("snap_chapter_num")
+    private val snapChapterCountKey = intPreferencesKey("snap_chapter_count")
 
     private val defaults = ReaderSettings()
 
@@ -37,6 +51,18 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
 
     /** Id of the most recently read book (last savePosition call), or null. */
     val lastBookId: Flow<String?> = dataStore.data.map { it[lastBookKey] }
+
+    /** Tile content captured at the last position save, or null if never written. */
+    val continueSnapshot: Flow<ContinueSnapshot?> = dataStore.data.map { prefs ->
+        val bookId = prefs[snapBookKey] ?: return@map null
+        ContinueSnapshot(
+            bookId = bookId,
+            bookTitle = prefs[snapTitleKey] ?: return@map null,
+            word = prefs[snapWordKey] ?: return@map null,
+            chapterNumber = prefs[snapChapterNumKey] ?: return@map null,
+            chapterCount = prefs[snapChapterCountKey] ?: return@map null,
+        )
+    }
 
     suspend fun setWpm(wpm: Int) {
         dataStore.edit { it[wpmKey] = wpm }
@@ -60,11 +86,18 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
         )
     }
 
-    suspend fun savePosition(bookId: String, position: ReadingPosition) {
+    suspend fun savePosition(bookId: String, position: ReadingPosition, snapshot: ContinueSnapshot? = null) {
         dataStore.edit {
             it[chapterKey(bookId)] = position.chapterIndex
             it[wordKey(bookId)] = position.wordIndex
             it[lastBookKey] = bookId
+            if (snapshot != null) {
+                it[snapBookKey] = snapshot.bookId
+                it[snapTitleKey] = snapshot.bookTitle
+                it[snapWordKey] = snapshot.word
+                it[snapChapterNumKey] = snapshot.chapterNumber
+                it[snapChapterCountKey] = snapshot.chapterCount
+            }
         }
     }
 

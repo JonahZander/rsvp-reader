@@ -234,6 +234,24 @@ class ReaderSessionTest {
     }
 
     @Test
+    fun `saving position also writes the tile snapshot`() = runTest {
+        val (session, store) = newHarness()
+        session.jumpToWord(1) // "two"
+        session.persistPosition()
+        runCurrent()
+        assertEquals(
+            com.jonahzander.rsvpreader.data.ContinueSnapshot(
+                bookId = "b",
+                bookTitle = "Test Book",
+                word = "two",
+                chapterNumber = 1,
+                chapterCount = 2,
+            ),
+            store.continueSnapshot.first(),
+        )
+    }
+
+    @Test
     fun `saving position notifies the listener`() = runTest {
         var notified = 0
         val (session, _) = newHarness(onPositionSaved = { notified++ })

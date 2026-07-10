@@ -57,7 +57,6 @@ class ContinueReadingTileService : TileService() {
 
     private suspend fun buildTile(): TileBuilders.Tile {
         val app = application as ReaderApplication
-        app.bookRepository.refresh()
         val info = loadContinueReadingInfo(app.progressStore) { app.bookRepository.get(it) }
         return TileBuilders.Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)

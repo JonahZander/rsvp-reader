@@ -64,6 +64,32 @@ class ProgressStoreTest {
     }
 
     @Test
+    fun `no continue snapshot by default`() = runStoreTest { store ->
+        assertNull(store.continueSnapshot.first())
+    }
+
+    @Test
+    fun `savePosition with snapshot stores it for the tile`() = runStoreTest { store ->
+        val snapshot = ContinueSnapshot(
+            bookId = "book-a",
+            bookTitle = "A Book",
+            word = "spiral",
+            chapterNumber = 2,
+            chapterCount = 5,
+        )
+        store.savePosition("book-a", ReadingPosition(1, 7), snapshot)
+        assertEquals(snapshot, store.continueSnapshot.first())
+    }
+
+    @Test
+    fun `savePosition without snapshot leaves the previous one untouched`() = runStoreTest { store ->
+        val snapshot = ContinueSnapshot("book-a", "A Book", "spiral", 2, 5)
+        store.savePosition("book-a", ReadingPosition(1, 7), snapshot)
+        store.savePosition("book-a", ReadingPosition(1, 8))
+        assertEquals(snapshot, store.continueSnapshot.first())
+    }
+
+    @Test
     fun `no last book by default`() = runStoreTest { store ->
         assertNull(store.lastBookId.first())
     }

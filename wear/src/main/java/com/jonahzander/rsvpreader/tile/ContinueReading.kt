@@ -22,6 +22,19 @@ suspend fun loadContinueReadingInfo(
     getBook: suspend (String) -> Book?,
 ): ContinueReadingInfo? {
     val bookId = progressStore.lastBookId.first() ?: return null
+    // Fast path: the snapshot is written atomically with every position save,
+    // so when it matches the last book no book needs to be loaded or tokenized.
+    progressStore.continueSnapshot.first()?.let { snap ->
+        if (snap.bookId == bookId) {
+            return ContinueReadingInfo(
+                bookId = snap.bookId,
+                bookTitle = snap.bookTitle,
+                lastWord = snap.word,
+                chapterNumber = snap.chapterNumber,
+                chapterCount = snap.chapterCount,
+            )
+        }
+    }
     val book = getBook(bookId) ?: return null
     if (book.chapters.isEmpty()) return null
     val position = progressStore.position(bookId).first()

@@ -133,6 +133,17 @@ class ReaderSession(
         savePosition()
     }
 
+    /** Jump to a fraction (0..1) of the current chapter. Pauses playback. */
+    fun seekToFraction(fraction: Double) {
+        pause()
+        val s = _state.value
+        val words = chapterWords[s.chapterIndex]
+        val target = (fraction.coerceIn(0.0, 1.0) * words.lastIndex.coerceAtLeast(0))
+            .toInt()
+        _state.value = stateAt(s.chapterIndex, target)
+        savePosition()
+    }
+
     private fun stateAt(chapterIndex: Int, wordIndex: Int): ReaderState {
         val words = chapterWords[chapterIndex]
         val word = words.getOrElse(wordIndex) { "" }

@@ -177,4 +177,24 @@ class ReaderSessionTest {
         assertEquals("four", session.state.value.word)
         assertEquals(ReadingPosition(1, 0), store.position("b").first())
     }
+
+    @Test
+    fun `seekToFraction jumps within the current chapter and saves`() = runTest {
+        val (session, store) = newHarness()
+        session.seekToFraction(1.0)
+        runCurrent()
+        assertEquals("three.", session.state.value.word) // last word of chapter 0
+        assertEquals(ReadingPosition(0, 2), store.position("b").first())
+    }
+
+    @Test
+    fun `seekToFraction clamps and pauses playback`() = runTest {
+        val (session, _) = newHarness()
+        session.togglePlay()
+        runCurrent()
+        session.seekToFraction(-0.5)
+        runCurrent()
+        assertEquals("one", session.state.value.word)
+        assertFalse(session.state.value.isPlaying)
+    }
 }

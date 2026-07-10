@@ -36,8 +36,6 @@ object DataLayerImport {
                                 val fd = dataClient.getFdForAsset(asset).await()
                                 val book = fd.inputStream.use { DataLayerContract.decodeBook(it.readBytes()) }
                                 books.saveSynced(book)
-                            }
-                            runCatching {
                                 val id = DataLayerContract.bookIdFromPath(path)
                                 if (id != null) {
                                     val ack = PutDataRequest.create(DataLayerContract.ackPath(id))

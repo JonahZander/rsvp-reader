@@ -31,12 +31,14 @@ class BookSender(context: Context) {
     }
 
     suspend fun deleteBook(id: String) {
-        val uri = Uri.Builder()
-            .scheme(PutDataRequest.WEAR_URI_SCHEME)
-            .authority("*")
-            .path(DataLayerContract.bookPath(id))
-            .build()
-        dataClient.deleteDataItems(uri).await()
+        for (path in listOf(DataLayerContract.bookPath(id), DataLayerContract.ackPath(id))) {
+            val uri = Uri.Builder()
+                .scheme(PutDataRequest.WEAR_URI_SCHEME)
+                .authority("*")
+                .path(path)
+                .build()
+            dataClient.deleteDataItems(uri).await()
+        }
     }
 
     suspend fun sendSettings(settings: ReaderSettings) {

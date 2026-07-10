@@ -43,12 +43,14 @@ private fun CompanionApp(repository: CompanionRepository) {
 
     val books by repository.books.collectAsStateWithLifecycle()
     val settings by repository.settings.collectAsStateWithLifecycle(ReaderSettings())
+    val ackedIds by repository.ackedIds.collectAsStateWithLifecycle(emptySet())
     var watchConnected by remember { mutableStateOf<Boolean?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         repository.refresh()
         watchConnected = repository.isWatchConnected()
+        repository.sweepAcks()
     }
 
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -81,6 +83,7 @@ private fun CompanionApp(repository: CompanionRepository) {
         MainScreen(
             books = books,
             watchConnected = watchConnected,
+            ackedIds = ackedIds,
             onImportEpub = {
                 epubPicker.launch(arrayOf("application/epub+zip", "application/octet-stream"))
             },

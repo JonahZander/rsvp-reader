@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.google.android.gms.wearable.Wearable
 import com.jonahzander.rsvpreader.companion.sync.BookSender
 import com.jonahzander.rsvpreader.core.BookStorage
 import com.jonahzander.rsvpreader.core.model.Book
 import com.jonahzander.rsvpreader.core.model.Chapter
+import com.jonahzander.rsvpreader.core.sync.DataLayerContract
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
@@ -26,7 +30,7 @@ import java.security.MessageDigest
  * Every mutation is mirrored into the Wearable Data Layer.
  */
 class CompanionRepository(
-    context: Context,
+    private val context: Context,
     private val dataStore: DataStore<Preferences>,
 ) {
     private val storage = BookStorage(File(context.filesDir, "books"))
@@ -34,6 +38,7 @@ class CompanionRepository(
 
     private val wpmKey = intPreferencesKey("wpm")
     private val fontKey = stringPreferencesKey("font")
+    private val ackedKey = stringSetPreferencesKey("ackedBooks")
 
     private val _books = MutableStateFlow<List<Book>>(emptyList())
     val books: StateFlow<List<Book>> = _books
@@ -45,8 +50,33 @@ class CompanionRepository(
         )
     }
 
+    val ackedIds: Flow<Set<String>> = dataStore.data.map { it[ackedKey] ?: emptySet() }
+
     suspend fun refresh() = withContext(Dispatchers.IO) {
         _books.value = storage.list()
+    }
+
+    suspend fun markAcked(id: String) {
+        dataStore.edit { it[ackedKey] = (it[ackedKey] ?: emptySet()) + id }
+    }
+
+    private suspend fun clearAcked(id: String) {
+        dataStore.edit { it[ackedKey] = (it[ackedKey] ?: emptySet()) - id }
+    }
+
+    /** Sweep existing ack DataItems — covers acks that arrived while the app was dead. */
+    suspend fun sweepAcks() {
+        runCatching {
+            val items = Wearable.getDataClient(context).dataItems.await()
+            try {
+                for (item in items) {
+                    val id = item.uri.path?.let { DataLayerContract.ackIdFromPath(it) } ?: continue
+                    markAcked(id)
+                }
+            } finally {
+                items.release()
+            }
+        }
     }
 
     suspend fun addBook(book: Book) = withContext(Dispatchers.IO) {
@@ -69,6 +99,7 @@ class CompanionRepository(
 
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
         storage.delete(id)
+        clearAcked(id)
         refresh()
         runCatching { sender.deleteBook(id) }
     }

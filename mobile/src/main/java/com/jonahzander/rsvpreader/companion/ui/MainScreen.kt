@@ -41,6 +41,7 @@ import com.jonahzander.rsvpreader.core.model.Book
 fun MainScreen(
     books: List<Book>,
     watchConnected: Boolean?,
+    ackedIds: Set<String>,
     onImportEpub: () -> Unit,
     onPasteText: (title: String, text: String) -> Unit,
     onRemove: (Book) -> Unit,
@@ -92,7 +93,8 @@ fun MainScreen(
                             headlineContent = { Text(book.title) },
                             supportingContent = {
                                 val chapters = "${book.chapters.size} chapter${if (book.chapters.size == 1) "" else "s"}"
-                                Text(listOfNotNull(book.author, chapters).joinToString(" · "))
+                                val status = if (book.id in ackedIds) "On watch ✓" else "Sending…"
+                                Text(listOfNotNull(book.author, chapters, status).joinToString(" · "))
                             },
                             trailingContent = {
                                 IconButton(onClick = { onRemove(book) }) {

@@ -1,6 +1,7 @@
 package com.jonahzander.rsvpreader.presentation
 
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -156,6 +157,10 @@ private fun ReaderContent(
     LaunchedEffect(scrubbing) { onScrubbingChanged(scrubbing) }
     // Never leave the nav host with swipe-back stuck off.
     DisposableEffect(Unit) { onDispose { onScrubbingChanged(false) } }
+
+    // On Wear OS 4+ the edge swipe arrives as a system back gesture, which the
+    // nav controller would pop regardless of userSwipeEnabled — swallow it too.
+    BackHandler(enabled = scrubbing) {}
 
     val scrubListState = rememberLazyListState()
     val centeredIndex by remember { derivedStateOf { centeredItemIndex(scrubListState) } }

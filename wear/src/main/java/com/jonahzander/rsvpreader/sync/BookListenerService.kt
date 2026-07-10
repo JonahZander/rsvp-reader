@@ -1,8 +1,10 @@
 package com.jonahzander.rsvpreader.sync
 
+import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.PutDataRequest
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.jonahzander.rsvpreader.ReaderApplication
@@ -47,16 +49,26 @@ class BookListenerService : WearableListenerService() {
                     .onSuccess { app.progressStore.applySettings(it) }
             }
             val dataClient = Wearable.getDataClient(this@BookListenerService)
-            for ((_, asset) in toImport) {
+            for ((id, asset) in toImport) {
                 runCatching {
                     val fd = dataClient.getFdForAsset(asset).await()
                     val book = fd.inputStream.use { DataLayerContract.decodeBook(it.readBytes()) }
                     app.bookRepository.saveSynced(book)
+                    sendAck(dataClient, id)
                 }
             }
             for (id in toDelete) {
                 app.bookRepository.deleteSynced(id)
             }
+        }
+    }
+
+    private suspend fun sendAck(dataClient: DataClient, bookId: String) {
+        runCatching {
+            val request = PutDataRequest.create(DataLayerContract.ackPath(bookId))
+                .apply { data = System.currentTimeMillis().toString().encodeToByteArray() }
+                .setUrgent()
+            dataClient.putDataItem(request).await()
         }
     }
 }

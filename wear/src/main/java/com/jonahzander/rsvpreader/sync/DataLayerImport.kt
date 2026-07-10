@@ -2,6 +2,7 @@ package com.jonahzander.rsvpreader.sync
 
 import android.content.Context
 import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.PutDataRequest
 import com.google.android.gms.wearable.Wearable
 import com.jonahzander.rsvpreader.data.BookRepository
 import com.jonahzander.rsvpreader.data.ProgressStore
@@ -35,6 +36,15 @@ object DataLayerImport {
                                 val fd = dataClient.getFdForAsset(asset).await()
                                 val book = fd.inputStream.use { DataLayerContract.decodeBook(it.readBytes()) }
                                 books.saveSynced(book)
+                            }
+                            runCatching {
+                                val id = DataLayerContract.bookIdFromPath(path)
+                                if (id != null) {
+                                    val ack = PutDataRequest.create(DataLayerContract.ackPath(id))
+                                        .apply { data = System.currentTimeMillis().toString().encodeToByteArray() }
+                                        .setUrgent()
+                                    dataClient.putDataItem(ack).await()
+                                }
                             }
                         }
                     }

@@ -24,9 +24,11 @@ private val FONT_OPTIONS = listOf("default", "serif", "mono")
 fun SettingsScreen(
     settings: ReaderSettings,
     wordSize: Int,
+    readingMode: ReadingMode,
     onWpmChange: (Int) -> Unit,
     onFontChange: (String) -> Unit,
     onWordSizeChange: (Int) -> Unit,
+    onReadingModeChange: (ReadingMode) -> Unit,
 ) {
     val listState = rememberScalingLazyListState()
     Scaffold(positionIndicator = { PositionIndicator(scalingLazyListState = listState) }) {
@@ -58,6 +60,18 @@ fun SettingsScreen(
                     colors = InlineSliderDefaults.colors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            item { ListHeader { Text("Reading mode") } }
+            ReadingMode.entries.forEach { option ->
+                item {
+                    Chip(
+                        onClick = { onReadingModeChange(option) },
+                        label = { Text(option.label) },
+                        colors = if (option == readingMode) ChipDefaults.primaryChipColors()
+                        else ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             item { ListHeader { Text("Font") } }
             FONT_OPTIONS.forEach { option ->

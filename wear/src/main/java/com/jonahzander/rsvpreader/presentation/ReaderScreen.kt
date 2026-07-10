@@ -104,6 +104,7 @@ fun ReaderScreen(
     viewModel: ReaderViewModel,
     font: String,
     wordSize: Int,
+    @Suppress("UNUSED_PARAMETER") mode: ReadingMode = ReadingMode.Rsvp,
     onScrubbingChanged: (Boolean) -> Unit,
     onOpenChapters: () -> Unit,
     onOpenLibrary: () -> Unit,

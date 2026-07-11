@@ -64,6 +64,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
@@ -274,10 +275,14 @@ private fun WordLineReader(
         }
     }
 
-    // While paused, the pinned word IS the reading position…
+    // While paused, the pinned word IS the reading position… drop(1) skips the
+    // initial emission on every effect (re)start, so mounting or a metrics
+    // change never writes the list's current pin (word 0 before the follower
+    // below has run) into the session — only actual pin changes do.
     LaunchedEffect(state.isPlaying, metrics) {
         if (!state.isPlaying) {
             snapshotFlow { pinnedWordIndex(listState, metrics, orpShiftPx) }
+                .drop(1)
                 .collect { session.jumpToWord(it) }
         }
     }
@@ -296,10 +301,13 @@ private fun WordLineReader(
         }
     }
 
-    // …and the position is persisted whenever a drag/fling settles.
+    // …and the position is persisted whenever a drag/fling settles. drop(1)
+    // skips the initial at-rest emission, so composing never persists the
+    // mount state over a position the session is still restoring.
     LaunchedEffect(state.isPlaying) {
         if (!state.isPlaying) {
             snapshotFlow { listState.isScrollInProgress }
+                .drop(1)
                 .filter { !it }
                 .collect { session.persistPosition() }
         }

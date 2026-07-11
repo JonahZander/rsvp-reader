@@ -85,6 +85,43 @@ class ReaderSessionTest {
     }
 
     @Test
+    fun `awaitRestored suspends until the saved position is applied`() = runTest {
+        val dsScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val store = ProgressStore(
+            PreferenceDataStoreFactory.create(scope = dsScope) {
+                tmp.newFolder().resolve("p.preferences_pb")
+            }
+        )
+        store.savePosition("b", ReadingPosition(chapterIndex = 1, wordIndex = 1))
+        val session = ReaderSession(book, store, CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob()))
+
+        session.awaitRestored()
+
+        val s = session.state.value
+        assertEquals(1, s.chapterIndex)
+        assertEquals(1, s.wordIndex)
+        assertEquals("five", s.word)
+    }
+
+    @Test
+    fun `awaitRestored completes when there is no saved position`() = runTest {
+        val dsScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val store = ProgressStore(
+            PreferenceDataStoreFactory.create(scope = dsScope) {
+                tmp.newFolder().resolve("p.preferences_pb")
+            }
+        )
+        val session = ReaderSession(book, store, CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob()))
+
+        session.awaitRestored() // must not hang
+
+        val s = session.state.value
+        assertEquals(0, s.chapterIndex)
+        assertEquals(0, s.wordIndex)
+        assertEquals("one", s.word)
+    }
+
+    @Test
     fun `play advances words on the rsvp clock`() = runTest {
         val (session, _) = newHarness()
         session.togglePlay()

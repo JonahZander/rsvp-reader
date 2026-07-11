@@ -27,6 +27,12 @@ class ReaderViewModel(
             val session = ReaderSession(book, app.progressStore, viewModelScope, saveScope = app.appScope) {
                 TileService.getUpdater(app).requestUpdate(ContinueReadingTileService::class.java)
             }
+            // Don't hand the session to the UI until the saved position has
+            // been applied: reader effects that mirror the list back into the
+            // session would otherwise persist word 0 over the restored word.
+            // (Awaiting before jumpToChapter also keeps a late restore from
+            // clobbering a tile deep-link's chapter jump.)
+            session.awaitRestored()
             if (startChapter != null) session.jumpToChapter(startChapter)
             _session.value = session
         }

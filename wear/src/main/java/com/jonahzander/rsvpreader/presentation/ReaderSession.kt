@@ -5,6 +5,7 @@ import com.jonahzander.rsvpreader.core.model.Book
 import com.jonahzander.rsvpreader.data.ContinueSnapshot
 import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.data.ReadingPosition
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -51,14 +52,33 @@ class ReaderSession(
 
     private var playJob: Job? = null
 
+    /** Completed once the saved position/wpm have been applied (or restore failed). */
+    private val restored = CompletableDeferred<Unit>()
+
     init {
         scope.launch {
-            val settings = progressStore.settings.first()
-            val position = progressStore.position(book.id).first()
-            val chapter = position.chapterIndex.coerceIn(0, book.chapters.lastIndex)
-            val word = position.wordIndex.coerceIn(0, chapterWords[chapter].lastIndex.coerceAtLeast(0))
-            _state.value = stateAt(chapter, word).copy(wpm = settings.wpm)
+            try {
+                val settings = progressStore.settings.first()
+                val position = progressStore.position(book.id).first()
+                val chapter = position.chapterIndex.coerceIn(0, book.chapters.lastIndex)
+                val word = position.wordIndex.coerceIn(0, chapterWords[chapter].lastIndex.coerceAtLeast(0))
+                _state.value = stateAt(chapter, word).copy(wpm = settings.wpm)
+            } finally {
+                // Complete on every path (no saved position, failure, cancellation)
+                // so awaitRestored can never hang.
+                restored.complete(Unit)
+            }
         }
+    }
+
+    /**
+     * Suspends until the init-time position restore has landed. Callers must
+     * not expose the session to the UI before this returns, or effects that
+     * mirror the list position back into the session can clobber the restored
+     * word with the mount state (word 0).
+     */
+    suspend fun awaitRestored() {
+        restored.await()
     }
 
     fun togglePlay() {

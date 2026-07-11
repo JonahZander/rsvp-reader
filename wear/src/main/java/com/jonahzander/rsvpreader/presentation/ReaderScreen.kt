@@ -280,14 +280,20 @@ private fun WordLineReader(
 
     // Playback drives the line. RSVP follows the engine clock, snapping each
     // new word's ORP letter onto the pin. Line mode inverts control: this loop
-    // IS the word clock — it crawls to the next word's pin over the current
-    // word's RSVP duration and advances the session as each word lands, so
+    // IS the word clock — it crawls at one constant pixel velocity, advancing
+    // the session as each word's pin crosses the fixed pin point, so
     // back-to-back animateScrollBy calls chain into one continuous motion with
-    // no tick→recompose seam between words.
+    // no tick→recompose seam between words and no lurching at long words or
+    // punctuation.
     LaunchedEffect(state.isPlaying, metrics, glide) {
         if (!state.isPlaying) return@LaunchedEffect
         if (glide) {
             val chapter = session.state.value.chapterIndex
+            // Average pin-to-pin advance (px/word) over a bounded sample of the
+            // chapter. The crawl velocity is chosen so this average pace honors
+            // the wpm setting: v = avgDelta * wpm / 60_000 px/ms. Computed once
+            // per (chapter, style) — metrics is re-remembered on either change.
+            val avgDelta = metrics.averageAdvance()
             // Establish the starting pin (no-op when resuming from pause; the
             // landing point after a chapter change or external jump).
             listState.pinWord(session.state.value.wordIndex, metrics, orpShiftPx, animate = false)
@@ -296,14 +302,20 @@ private fun WordLineReader(
                 // A chapter change re-keys chapterWords/metrics; let the
                 // restarted effect take over with fresh geometry.
                 if (!s.isPlaying || s.chapterIndex != chapter) break
-                val duration = RsvpEngine
-                    .durationMs(chapterWords.getOrElse(s.wordIndex) { "" }, s.wpm)
-                    .toInt()
-                    .coerceAtLeast(1)
+                // Re-derived every word so crown wpm changes rescale the
+                // velocity on the next word. baseMs doubles as the dwell (and
+                // degenerate-chapter fallback): avgDelta / velocity == baseMs.
+                val baseMs = (60_000f / s.wpm).roundToInt().coerceAtLeast(1)
+                val velocity = if (avgDelta > 0f) avgDelta / baseMs else 0f // px per ms
                 val next = s.wordIndex + 1
                 if (next < metrics.size) {
                     val delta = listState.deltaToPin(next, metrics, orpShiftPx)
                     if (delta != null) {
+                        val duration = if (velocity > 0f) {
+                            (abs(delta) / velocity).roundToInt().coerceAtLeast(1)
+                        } else {
+                            baseMs
+                        }
                         try {
                             listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
                         } catch (e: CancellationException) {
@@ -317,14 +329,14 @@ private fun WordLineReader(
                         }
                     } else {
                         // Next word not laid out (external jump left the pin
-                        // far away) — dwell for the word, then snap to it.
-                        delay(duration.toLong())
+                        // far away) — dwell one average word, then snap to it.
+                        delay(baseMs.toLong())
                         listState.pinWord(next, metrics, orpShiftPx, animate = false)
                     }
                 } else {
-                    // Last word of the chapter: dwell for its duration, then
+                    // Last word of the chapter: dwell one average word, then
                     // advanceWord crosses into the next chapter (or finishes).
-                    delay(duration.toLong())
+                    delay(baseMs.toLong())
                 }
                 if (!session.advanceWord()) break
             }
@@ -425,9 +437,9 @@ private fun WordLineReader(
             },
         contentAlignment = Alignment.Center,
     ) {
-        // The crawl is colorless; paused Line mode regains the pinned-word
-        // highlight for browsing, like RSVP.
-        val uniform = glide && state.isPlaying
+        // Line mode is colorless throughout — playing or stopped, the line
+        // always renders as one uniform color (no highlight, no ORP letter).
+        val uniform = glide
         WordLine(
             words = chapterWords,
             listState = listState,
@@ -461,8 +473,8 @@ private fun WordLineReader(
  * The chapter as one continuous line of text. Words clip naturally at the
  * screen edges. In RSVP mode the pinned word is always fully visible with its
  * ORP letter highlighted and the surrounding words render at [neighborAlpha]
- * so they can fade away entirely while playing. With [uniform] (Line mode
- * while playing) every word renders identically — no ORP highlight, no
+ * so they can fade away entirely while playing. With [uniform] (Line mode,
+ * playing or stopped) every word renders identically — no ORP highlight, no
  * neighbor dimming — so nothing changes color as the line crawls.
  */
 @Composable
@@ -531,6 +543,32 @@ private class WordPinMetrics(
         val orp = RsvpEngine.orpIndex(word).coerceIn(0, word.length - 1)
         val box = measurer.measure(AnnotatedString(word), style, maxLines = 1).getBoundingBox(orp)
         itemPaddingPx + (box.left + box.right) / 2f
+    }
+
+    /**
+     * Average pin-to-pin advance in pixels over the first [sample] words —
+     * the distance the line moves per word when crawling at constant speed.
+     * Returns 0 for chapters with fewer than two words (callers must fall
+     * back to a time-based pace).
+     */
+    fun averageAdvance(sample: Int = 100): Float {
+        val steps = minOf(sample, words.size - 1)
+        if (steps <= 0) return 0f
+        var total = 0f
+        for (i in 0 until steps) {
+            // Consecutive pins are one item width apart, adjusted for where
+            // the ORP letter sits inside each item.
+            total += itemWidth(i) - orpCenter(i) + orpCenter(i + 1)
+        }
+        return total / steps
+    }
+
+    /** Full item width (text plus horizontal padding) in pixels. */
+    private fun itemWidth(index: Int): Float {
+        val word = words.getOrNull(index).orEmpty()
+        val textWidth = if (word.isEmpty()) 0f
+        else measurer.measure(AnnotatedString(word), style, maxLines = 1).size.width.toFloat()
+        return textWidth + 2f * itemPaddingPx
     }
 }
 

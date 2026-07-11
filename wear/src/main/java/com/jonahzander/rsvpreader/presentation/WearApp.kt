@@ -54,11 +54,19 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     var swipeBackEnabled by remember { mutableStateOf(true) }
     val activity = LocalContext.current as? Activity
 
+    // The reader's paused word line owns horizontal swipes, so it disables
+    // swipe-back — but only while the reader is actually the top destination.
+    // The nav host keeps the reader composed beneath pushed screens (Settings,
+    // Chapters), so without this gate the disable would leak to them.
+    val currentEntry by navController.currentBackStackEntryFlow
+        .collectAsStateWithLifecycle(initialValue = null)
+    val readerOnTop = currentEntry?.destination?.route?.startsWith("reader/") == true
+
     MaterialTheme {
         SwipeDismissableNavHost(
             navController = navController,
             startDestination = "library",
-            userSwipeEnabled = swipeBackEnabled,
+            userSwipeEnabled = swipeBackEnabled || !readerOnTop,
         ) {
             composable("library") {
                 LibraryScreen(

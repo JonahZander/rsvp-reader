@@ -62,8 +62,11 @@ import com.jonahzander.rsvpreader.core.RotaryAccumulator
 import com.jonahzander.rsvpreader.core.RsvpEngine
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -213,7 +216,15 @@ private fun WordLineReader(
     var rotarySettleJob by remember { mutableStateOf<Job?>(null) }
 
     // Paused = the line is swipeable, so the horizontal gestures must not leave the reader.
-    LaunchedEffect(state.isPlaying) { onScrubbingChanged(!state.isPlaying) }
+    LaunchedEffect(state.isPlaying) {
+        onScrubbingChanged(!state.isPlaying)
+        if (state.isPlaying) {
+            // A rotary settle pending from the paused state would fight the
+            // playback scroll (its pinWord cancels an in-flight glide).
+            rotarySettleJob?.cancel()
+            rotarySettleJob = null
+        }
+    }
     // Never leave the nav host with swipe-back stuck off.
     DisposableEffect(Unit) { onDispose { onScrubbingChanged(false) } }
     // On Wear OS 4+ the edge swipe arrives as a system back gesture, which the
@@ -258,7 +269,14 @@ private fun WordLineReader(
     // Line mode drives the word clock itself (one continuous crawl), so the
     // session must not run its own while this reader owns playback.
     LaunchedEffect(session, glide) { session.externalClock = glide }
-    DisposableEffect(session) { onDispose { session.externalClock = false } }
+    DisposableEffect(session) {
+        onDispose {
+            // The glide loop dies with this composable — never hand a
+            // headless internal clock back mid-play.
+            if (session.state.value.isPlaying) session.pause()
+            session.externalClock = false
+        }
+    }
 
     // Playback drives the line. RSVP follows the engine clock, snapping each
     // new word's ORP letter onto the pin. Line mode inverts control: this loop
@@ -286,7 +304,17 @@ private fun WordLineReader(
                 if (next < metrics.size) {
                     val delta = listState.deltaToPin(next, metrics, orpShiftPx)
                     if (delta != null) {
-                        listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
+                        try {
+                            listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
+                        } catch (e: CancellationException) {
+                            // A competing scroll (gesture, stray settle job)
+                            // stole the ScrollableState mutex, cancelling only
+                            // the animation — rethrow iff the clock coroutine
+                            // itself was cancelled, else retry the word from
+                            // wherever the line now sits.
+                            currentCoroutineContext().ensureActive()
+                            continue
+                        }
                     } else {
                         // Next word not laid out (external jump left the pin
                         // far away) — dwell for the word, then snap to it.
@@ -397,15 +425,20 @@ private fun WordLineReader(
             },
         contentAlignment = Alignment.Center,
     ) {
+        // The crawl is colorless; paused Line mode regains the pinned-word
+        // highlight for browsing, like RSVP.
+        val uniform = glide && state.isPlaying
         WordLine(
             words = chapterWords,
             listState = listState,
-            pinnedIndex = pinnedIndex,
+            // Skip the derived pin read while uniform — the value is unused
+            // and would recompose the line on every crawled word.
+            pinnedIndex = if (uniform) -1 else pinnedIndex,
             style = wordStyle,
             neighborAlpha = neighborAlpha,
             flingBehavior = flingBehavior,
             scrollEnabled = !state.isPlaying,
-            uniform = glide,
+            uniform = uniform,
         )
 
         if (!state.isPlaying) {
@@ -428,9 +461,9 @@ private fun WordLineReader(
  * The chapter as one continuous line of text. Words clip naturally at the
  * screen edges. In RSVP mode the pinned word is always fully visible with its
  * ORP letter highlighted and the surrounding words render at [neighborAlpha]
- * so they can fade away entirely while playing. With [uniform] (Line mode)
- * every word renders identically — no ORP highlight, no neighbor dimming — so
- * nothing changes color as the line crawls.
+ * so they can fade away entirely while playing. With [uniform] (Line mode
+ * while playing) every word renders identically — no ORP highlight, no
+ * neighbor dimming — so nothing changes color as the line crawls.
  */
 @Composable
 private fun WordLine(

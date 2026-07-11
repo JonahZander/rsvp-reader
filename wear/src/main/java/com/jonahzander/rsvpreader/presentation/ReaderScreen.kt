@@ -55,6 +55,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
@@ -104,6 +106,18 @@ fun ReaderScreen(
             Text("Loading…")
         }
         return
+    }
+    // Backgrounding the reader (crown/home press) stops the activity without
+    // finishing it, so nothing downstream would pause or save. ON_STOP (not
+    // ON_PAUSE, which also fires for transient occlusions like ambient
+    // transitions) is the "user left" signal: pause() halts the RSVP word
+    // clock — which is delay-based and would otherwise keep advancing
+    // invisibly — and always persists the current position, even when the
+    // session is already paused (every mode keeps wordIndex current while
+    // browsing). Scroll mode additionally stops its auto-scroll in its own
+    // ON_STOP hook.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        current.pause()
     }
     when (mode) {
         ReadingMode.Rsvp, ReadingMode.Line -> {

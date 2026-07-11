@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CompactChip
@@ -111,6 +113,15 @@ fun ScrollReader(
         val l = layout ?: return
         session.jumpToWord(topWordIndex(l))
         session.persistPosition()
+    }
+
+    // Backgrounding mid-auto-scroll (crown/home press): stop the crawl and
+    // save the top word. The cancelled auto-scroll effect never reaches its
+    // own post-loop save, and a frame-clocked animateScrollBy would resume
+    // the moment the activity returns, so the motion must be stopped here.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        autoScrolling = false
+        saveTopWord()
     }
 
     // Keep the screen on only while auto-scrolling — and never leak the flag

@@ -24,8 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
 
-private val FONT_OPTIONS = listOf("default", "serif", "mono")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -63,10 +61,13 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
             )
+            // Older installs may have persisted a font this list no longer
+            // offers ("atkinson"); those render — and highlight — as default.
+            val selectedFont = settings.font.takeIf { it in ReaderSettings.FONT_OPTIONS } ?: "default"
             Row {
-                FONT_OPTIONS.forEach { option ->
+                ReaderSettings.FONT_OPTIONS.forEach { option ->
                     FilterChip(
-                        selected = option == settings.font,
+                        selected = option == selectedFont,
                         onClick = { onFontChange(option) },
                         label = { Text(option.replaceFirstChar { it.uppercase() }) },
                         modifier = Modifier.padding(end = 8.dp),

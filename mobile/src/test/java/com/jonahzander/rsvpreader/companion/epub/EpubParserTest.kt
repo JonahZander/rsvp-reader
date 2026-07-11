@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -146,6 +147,15 @@ class EpubParserTest {
             )
         )
         assertEquals(listOf("Real"), book.chapters.map { it.title })
+    }
+
+    @Test
+    fun `epub with no readable text at all is rejected`() {
+        val bytes = buildEpub(
+            chapters = listOf("cover.xhtml" to chapterXhtml(null, """<img src="cover.jpg"/>""")),
+        )
+        val error = assertFailsWith<IllegalArgumentException> { parse(bytes) }
+        assertTrue("No readable text" in error.message.orEmpty(), "got: ${error.message}")
     }
 
     @Test

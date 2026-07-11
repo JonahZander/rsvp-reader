@@ -113,7 +113,11 @@ class ReaderSession(
     }
 
     private fun play() {
-        if (_state.value.isPlaying) return
+        val s = _state.value
+        if (s.isPlaying) return
+        // "Finished — tap to restart chapter": playing again from the end
+        // would just replay the last word and re-finish.
+        if (s.finished) _state.value = stateAt(s.chapterIndex, 0)
         _state.value = _state.value.copy(isPlaying = true, finished = false)
         if (!externalClock) startLoop()
     }
@@ -159,7 +163,9 @@ class ReaderSession(
             playJob?.cancel()
             startLoop()
         }
-        scope.launch { progressStore.setWpm(wpm) }
+        // saveScope, like savePosition: a crown adjustment right before leaving
+        // the reader must survive the playback scope's cancellation.
+        saveScope.launch { progressStore.setWpm(wpm) }
     }
 
     /**

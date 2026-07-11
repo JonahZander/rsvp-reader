@@ -22,8 +22,8 @@ class BookSender(context: Context) {
 
     suspend fun sendBook(book: Book) {
         val request = PutDataMapRequest.create(DataLayerContract.bookPath(book.id)).apply {
-            dataMap.putString(DataLayerContract.KEY_TITLE, book.title)
-            book.author?.let { dataMap.putString(DataLayerContract.KEY_AUTHOR, it) }
+            // The timestamp is never read; it forces the DataMap to differ so
+            // re-sends of an unchanged book still trigger a change event.
             dataMap.putLong(DataLayerContract.KEY_UPDATED_AT, System.currentTimeMillis())
             dataMap.putAsset(DataLayerContract.ASSET_BOOK, Asset.createFromBytes(DataLayerContract.encodeBook(book)))
         }.asPutDataRequest().setUrgent()

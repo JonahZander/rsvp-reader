@@ -102,7 +102,15 @@ fun PagedReader(
             }
             target < 0 -> {
                 val hasPrevious = state.chapterIndex > 0
-                if (hasPrevious) session.jumpToChapter(state.chapterIndex - 1)
+                if (hasPrevious) {
+                    // Land on the previous chapter's LAST page: jumpToChapter
+                    // alone lands on word 0, which skips the whole chapter
+                    // (and rewinds the saved position to its start).
+                    val previous = state.chapterIndex - 1
+                    session.jumpToChapter(previous)
+                    session.jumpToWord(session.wordsOf(previous).lastIndex.coerceAtLeast(0))
+                    session.persistPosition()
+                }
                 hasPrevious
             }
             else -> {

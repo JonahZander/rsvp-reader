@@ -317,7 +317,9 @@ private fun SeekSheet(
     ) {
         Text("${(fraction * 100).roundToInt()} %", style = MaterialTheme.typography.title2)
         Text(
-            "word ${((fraction * (wordCount - 1).coerceAtLeast(0)).roundToInt() + 1)} of ${wordCount.coerceAtLeast(1)}",
+            // Truncate like seekToFraction does, so the label names the exact
+            // word "Go" lands on.
+            "word ${((fraction * (wordCount - 1).coerceAtLeast(0)).toInt() + 1)} of ${wordCount.coerceAtLeast(1)}",
             style = MaterialTheme.typography.caption2,
             color = MaterialTheme.colors.onSurfaceVariant,
         )

@@ -23,7 +23,11 @@ class ReaderViewModel(
     init {
         viewModelScope.launch {
             app.bookRepository.refresh()
-            val book = app.bookRepository.get(bookId) ?: return@launch
+            // A chapterless book (synced by an older phone app with no
+            // zero-chapter guard) would crash the session's restore indexing.
+            val book = app.bookRepository.get(bookId)
+                ?.takeIf { it.chapters.isNotEmpty() }
+                ?: return@launch
             val session = ReaderSession(book, app.progressStore, viewModelScope, saveScope = app.appScope) {
                 TileService.getUpdater(app).requestUpdate(ContinueReadingTileService::class.java)
             }

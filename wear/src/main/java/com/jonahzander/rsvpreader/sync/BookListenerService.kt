@@ -1,16 +1,13 @@
 package com.jonahzander.rsvpreader.sync
 
-import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
-import com.google.android.gms.wearable.PutDataRequest
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.jonahzander.rsvpreader.ReaderApplication
 import com.jonahzander.rsvpreader.core.sync.DataLayerContract
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.tasks.await
 
 /**
  * Receives books and settings pushed from the phone companion app.
@@ -44,31 +41,17 @@ class BookListenerService : WearableListenerService() {
 
         // WearableListenerService callbacks run on a background thread; blocking is fine here.
         runBlocking {
-            settingsBytes?.let { bytes ->
-                runCatching { DataLayerContract.decodeSettings(bytes) }
-                    .onSuccess { app.progressStore.applySettings(it) }
-            }
             val dataClient = Wearable.getDataClient(this@BookListenerService)
+            settingsBytes?.let { applySettingsBytes(it, app.progressStore) }
             for ((id, asset) in toImport) {
-                runCatching {
-                    val fd = dataClient.getFdForAsset(asset).await()
-                    val book = fd.inputStream.use { DataLayerContract.decodeBook(it.readBytes()) }
-                    app.bookRepository.saveSynced(book)
-                    sendAck(dataClient, id)
-                }
+                importBookAsset(dataClient, id, asset, app.bookRepository)
             }
             for (id in toDelete) {
-                app.bookRepository.deleteSynced(id)
+                runCatching {
+                    app.bookRepository.deleteSynced(id)
+                    deleteAck(dataClient, id)
+                }
             }
-        }
-    }
-
-    private suspend fun sendAck(dataClient: DataClient, bookId: String) {
-        runCatching {
-            val request = PutDataRequest.create(DataLayerContract.ackPath(bookId))
-                .apply { data = System.currentTimeMillis().toString().encodeToByteArray() }
-                .setUrgent()
-            dataClient.putDataItem(request).await()
         }
     }
 }

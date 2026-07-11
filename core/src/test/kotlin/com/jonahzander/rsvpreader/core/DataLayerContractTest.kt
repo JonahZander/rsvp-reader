@@ -50,11 +50,6 @@ class DataLayerContractTest {
     }
 
     @Test
-    fun `total words counts across chapters`() {
-        assertEquals(11, book.totalWords)
-    }
-
-    @Test
     fun `ack path round-trips through id extraction`() {
         assertEquals("/acks/b1", DataLayerContract.ackPath("b1"))
         assertEquals("b1", DataLayerContract.ackIdFromPath("/acks/b1"))

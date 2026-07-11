@@ -17,6 +17,6 @@ class AckListenerService : WearableListenerService() {
             event.dataItem.uri.path?.let { DataLayerContract.ackIdFromPath(it) }
         }
         if (acked.isEmpty()) return
-        runBlocking { acked.forEach { repository.markAcked(it) } }
+        runBlocking { repository.markAcked(acked) }
     }
 }

@@ -32,8 +32,8 @@ class ProgressStoreTest {
     }
 
     @Test
-    fun `defaults are 300 wpm and atkinson font`() = runStoreTest { store ->
-        assertEquals(ReaderSettings(wpm = 300, font = "atkinson"), store.settings.first())
+    fun `defaults are 300 wpm and default font`() = runStoreTest { store ->
+        assertEquals(ReaderSettings(wpm = 300, font = "default"), store.settings.first())
     }
 
     @Test
@@ -106,13 +106,6 @@ class ProgressStoreTest {
         store.savePosition("book-a", ReadingPosition(1, 2))
         store.savePosition("book-b", ReadingPosition(0, 0))
         assertEquals("book-b", store.lastBookId.first())
-    }
-
-    @Test
-    fun `cleared position resets to start`() = runStoreTest { store ->
-        store.savePosition("book-a", ReadingPosition(3, 7))
-        store.clearPosition("book-a")
-        assertEquals(ReadingPosition(0, 0), store.position("book-a").first())
     }
 
     @Test

@@ -64,7 +64,7 @@ fun MainScreen(
         Column(Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
             Text(
                 text = when (watchConnected) {
-                    true -> "⌚ Watch connected"
+                    true -> "⌚ Watch reachable"
                     false -> "⌚ Watch not reachable — books sync when it reconnects"
                     null -> "⌚ Checking watch connection…"
                 },

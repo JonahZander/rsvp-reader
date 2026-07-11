@@ -1,12 +1,12 @@
 package com.jonahzander.rsvpreader.companion.epub
 
+import com.jonahzander.rsvpreader.companion.util.contentId
 import com.jonahzander.rsvpreader.core.model.Book
 import com.jonahzander.rsvpreader.core.model.Chapter
 import io.documentnode.epub4j.epub.EpubReader
 import org.jsoup.Jsoup
 import java.io.ByteArrayInputStream
 import java.io.InputStream
-import java.security.MessageDigest
 
 /**
  * Parses an EPUB stream into the app's [Book] model: OPF metadata for
@@ -33,8 +33,11 @@ object EpubParser {
         val numbered = chapters.mapIndexed { i, chapter ->
             if (chapter.title.isBlank()) chapter.copy(title = "Chapter ${i + 1}") else chapter
         }
+        // A chapterless book (image-only EPUB) would list on the watch but
+        // crash the reader — reject it here where the user can see why.
+        require(numbered.isNotEmpty()) { "No readable text found in this EPUB" }
 
-        return Book(id = idFor(bytes), title = title, author = author, chapters = numbered)
+        return Book(id = contentId(bytes), title = title, author = author, chapters = numbered)
     }
 
     /** Returns null for spine items with no readable text (covers, image pages). */
@@ -55,9 +58,4 @@ object EpubParser {
 
     private fun clean(text: String): String = text.replace(' ', ' ').trim()
 
-    /** Stable, filename-safe id derived from the file's content. */
-    private fun idFor(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-1").digest(bytes)
-            .joinToString("") { "%02x".format(it) }
-            .take(16)
 }

@@ -14,9 +14,10 @@ reading device); reimplemented from scratch in Kotlin for Wear OS.
 
 - `:core` — pure Kotlin: RSVP engine (tokenization, per-word timing, ORP),
   book model, JSON serialization, file storage. Fully unit tested.
-- `:wear` — the watch app: Compose for Wear OS. Library → chapters → reader.
-  Tap to play/pause, rotary crown adjusts speed while playing and scrubs
-  while paused. Reading position and settings persist via DataStore.
+- `:wear` — the watch app: Compose for Wear OS. Library → chapters → reader,
+  with four reading modes, an in-reader menu, a seek sheet, and a
+  continue-reading tile that deep-links back into the reader. Reading
+  position and settings persist via DataStore.
 - `:mobile` — the phone companion: import EPUBs (file picker or share sheet),
   share/paste text, manage the sent library, set default speed/font. Syncs
   to the watch over the Wearable Data Layer (books as Assets at
@@ -43,13 +44,26 @@ Compose limitation). For actual use install the release build:
     adb -s <watch> install -r wear/build/outputs/apk/release/wear-release.apk
     adb -s <phone> install -r mobile/build/outputs/apk/release/mobile-release.apk
 
+## Reading modes (watch)
+
+Pick a mode in the watch Settings:
+
+- **RSVP** — words flash at a fixed point with the ORP letter highlighted.
+  Words get extra display time when they are long or end a clause/sentence.
+- **Line** — the same line of text crawls continuously under the fixed point.
+- **Paged** — e-reader pages; tap the left/right edges or turn the crown.
+- **Scroll** — an auto-scrolling column of text; tap to start/stop.
+
 ## Reading controls (watch)
 
 | Input | Playing | Paused |
 |---|---|---|
-| Tap | pause | play |
-| Crown | change WPM (100–900) | scrub word by word |
-| Swipe right | back | back |
+| Tap | pause (RSVP/Line) | play |
+| Crown | change WPM (100–900) | scrub / page / scroll |
+| Swipe down | open the menu (Chapters / Library / Settings / Exit) | same |
+| Swipe up | open the seek sheet (jump within the chapter) | same |
+| Swipe right | — | back |
 
-Words get extra display time when they are long or end a clause/sentence.
-The screen stays on only while words are streaming.
+Scroll mode has no seek sheet and opens the menu with a long press.
+The screen stays on only while words are streaming. The continue-reading
+tile shows the last word read and jumps straight back into the reader.

@@ -209,6 +209,12 @@ fun ScrollReader(
         snapshotFlow { scrollState.value to scrollState.isScrollInProgress }
             .drop(1)
             .collectLatest { (_, inProgress) ->
+                // Keep the session index current on every movement (no
+                // persist), mirroring the auto-scroll loop: swipe-back
+                // mid-fling or mid-debounce is an in-app nav pop (no ON_STOP),
+                // so only the teardown save runs — it must see the words
+                // actually read, not the pre-gesture position.
+                if (!autoScrolling) layout?.let { session.jumpToWord(topWordIndex(it)) }
                 if (!inProgress) {
                     delay(250)
                     if (!autoScrolling) saveTopWord()

@@ -38,7 +38,13 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     // restores the saved position itself. A stale book id stays on the library.
     LaunchedEffect(launchBookId, launchNonce) {
         if (launchBookId != null && app.bookRepository.get(launchBookId) != null) {
-            navController.navigate("reader/$launchBookId")
+            navController.navigate("reader/$launchBookId") {
+                // One reader entry only: a tap while a reader is already open
+                // would otherwise stack a second live session for the same
+                // book, and the buried one saves stale positions on exit.
+                popUpTo("library")
+                launchSingleTop = true
+            }
         }
     }
     val books by app.bookRepository.books.collectAsStateWithLifecycle()

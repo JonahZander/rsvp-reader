@@ -8,13 +8,16 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.android.gms.wearable.Wearable
+import com.jonahzander.rsvpreader.companion.epub.EpubParser
 import com.jonahzander.rsvpreader.companion.sync.BookSender
+import com.jonahzander.rsvpreader.companion.util.contentId
 import com.jonahzander.rsvpreader.core.BookStorage
 import com.jonahzander.rsvpreader.core.model.Book
 import com.jonahzander.rsvpreader.core.model.Chapter
 import com.jonahzander.rsvpreader.core.sync.DataLayerContract
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +26,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.MessageDigest
+import java.io.InputStream
 
 /**
  * The phone's library of sent material plus default reader settings.
@@ -56,8 +59,9 @@ class CompanionRepository(
         _books.value = storage.list()
     }
 
-    suspend fun markAcked(id: String) {
-        dataStore.edit { it[ackedKey] = (it[ackedKey] ?: emptySet()) + id }
+    suspend fun markAcked(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        dataStore.edit { it[ackedKey] = (it[ackedKey] ?: emptySet()) + ids }
     }
 
     private suspend fun clearAcked(id: String) {
@@ -68,18 +72,41 @@ class CompanionRepository(
     suspend fun sweepAcks() {
         runCatching {
             val items = Wearable.getDataClient(context).dataItems.await()
-            try {
-                for (item in items) {
-                    val id = item.uri.path?.let { DataLayerContract.ackIdFromPath(it) } ?: continue
-                    markAcked(id)
-                }
+            val ids = try {
+                items.mapNotNull { item -> item.uri.path?.let { DataLayerContract.ackIdFromPath(it) } }
             } finally {
                 items.release()
             }
+            markAcked(ids)
         }
     }
 
-    suspend fun addBook(book: Book) = withContext(Dispatchers.IO) {
+    /**
+     * Re-send every book the watch has not acked — a send can fail (Play
+     * Services down) or be cancelled mid-flight, and nothing else retries it.
+     * Re-sending an already-delivered book is harmless: the watch re-imports
+     * and re-acks.
+     */
+    suspend fun resendUnacked() {
+        val acked = ackedIds.first()
+        for (book in _books.value) {
+            if (book.id !in acked) runCatching { sender.sendBook(book) }
+        }
+    }
+
+    /** Parse an EPUB stream and add it to the library; parse errors come back as failures. */
+    suspend fun importEpub(open: () -> InputStream?): Result<Book> = withContext(Dispatchers.IO) {
+        runCatching {
+            val book = (open() ?: error("Could not open file")).use { EpubParser.parse(it) }
+            addBook(book)
+            book
+        }
+    }
+
+    // add/remove run NonCancellable: once the local save starts, the mirrored
+    // Data Layer write must run too, or a cancelled caller (share sheet
+    // dismissed mid-import) leaves a book saved locally but never sent.
+    suspend fun addBook(book: Book) = withContext(Dispatchers.IO + NonCancellable) {
         storage.save(book)
         refresh()
         // Sync is best-effort: the local library must work even when
@@ -90,14 +117,14 @@ class CompanionRepository(
     suspend fun addText(title: String, text: String) {
         addBook(
             Book(
-                id = sha1(text).take(16),
+                id = contentId(text.encodeToByteArray()),
                 title = title,
                 chapters = listOf(Chapter(title, text)),
             )
         )
     }
 
-    suspend fun remove(id: String) = withContext(Dispatchers.IO) {
+    suspend fun remove(id: String) = withContext(Dispatchers.IO + NonCancellable) {
         storage.delete(id)
         clearAcked(id)
         refresh()
@@ -119,8 +146,4 @@ class CompanionRepository(
     private suspend fun pushSettings() {
         runCatching { sender.sendSettings(settings.first()) }
     }
-
-    private fun sha1(text: String): String =
-        MessageDigest.getInstance("SHA-1").digest(text.encodeToByteArray())
-            .joinToString("") { "%02x".format(it) }
 }

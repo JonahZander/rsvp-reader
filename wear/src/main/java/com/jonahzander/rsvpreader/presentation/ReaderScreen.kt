@@ -240,9 +240,12 @@ private fun WordLineReader(
     // screen's focused node has left composition, so nothing clears it back.
     val focusRequester = rememberActiveFocusRequester()
 
-    // Keep the screen on only while words are streaming
-    LaunchedEffect(state.isPlaying) {
+    // Keep the screen on only while words are streaming — and never leak the
+    // flag when the reader is dismissed mid-play (swipe-back stays enabled
+    // while playing, and disposal skips the effect that would clear it).
+    DisposableEffect(state.isPlaying) {
         view.keepScreenOn = state.isPlaying
+        onDispose { view.keepScreenOn = false }
     }
 
     // In case the chrome's controls ever take focus while the menu or seek

@@ -16,13 +16,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jonahzander.rsvpreader.companion.epub.EpubParser
 import com.jonahzander.rsvpreader.companion.ui.MainScreen
 import com.jonahzander.rsvpreader.companion.ui.SettingsScreen
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,6 +48,7 @@ private fun CompanionApp(repository: CompanionRepository) {
         repository.refresh()
         watchConnected = repository.isWatchConnected()
         repository.sweepAcks()
+        repository.resendUnacked()
     }
 
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -58,16 +56,8 @@ private fun CompanionApp(repository: CompanionRepository) {
     val epubPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(uri)!!.use { EpubParser.parse(it) }
-                }
-            }
-            result
-                .onSuccess { book ->
-                    repository.addBook(book)
-                    toast("Sent \"${book.title}\" to watch (${book.chapters.size} chapters)")
-                }
+            repository.importEpub { context.contentResolver.openInputStream(uri) }
+                .onSuccess { toast("Sent \"${it.title}\" to watch (${it.chapters.size} chapters)") }
                 .onFailure { toast("Could not read that EPUB: ${it.message}") }
         }
     }

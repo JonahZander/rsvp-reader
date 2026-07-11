@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
-import com.jonahzander.rsvpreader.companion.epub.EpubParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,14 +30,22 @@ class ShareActivity : ComponentActivity() {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     when {
-                        stream != null -> {
-                            val book = contentResolver.openInputStream(stream)!!.use { EpubParser.parse(it) }
-                            repository.addBook(book)
-                            book.title
-                        }
+                        // Only a declared EPUB goes through the EPUB parser: a
+                        // text/plain share can also arrive as a stream (e.g. a
+                        // .txt file from a file manager) and must be read as text.
+                        stream != null && intent.type == "application/epub+zip" ->
+                            repository.importEpub { contentResolver.openInputStream(stream) }
+                                .getOrThrow().title
                         !text.isNullOrBlank() -> {
                             val bookTitle = title?.takeIf { it.isNotBlank() } ?: shortTitleFor(text)
                             repository.addText(bookTitle, text)
+                            bookTitle
+                        }
+                        stream != null -> {
+                            val streamText = contentResolver.openInputStream(stream)!!
+                                .use { it.readBytes().decodeToString() }
+                            val bookTitle = title?.takeIf { it.isNotBlank() } ?: shortTitleFor(streamText)
+                            repository.addText(bookTitle, streamText)
                             bookTitle
                         }
                         else -> error("Nothing shareable found")

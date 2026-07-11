@@ -7,6 +7,8 @@ import com.jonahzander.rsvpreader.core.sync.DataLayerContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -21,8 +23,15 @@ class BookRepository(private val context: Context) {
     private val _books = MutableStateFlow<List<Book>>(emptyList())
     val books: StateFlow<List<Book>> = _books
 
+    // Serializes list-compute-publish: refresh runs concurrently from app
+    // start, the reader, and both sync paths; an interleaved stale compute
+    // could otherwise overwrite a list that already contained a new book.
+    private val refreshMutex = Mutex()
+
     suspend fun refresh() = withContext(Dispatchers.IO) {
-        _books.value = (bundledBooks() + storage.list()).sortedBy { it.title.lowercase() }
+        refreshMutex.withLock {
+            _books.value = (bundledBooks() + storage.list()).sortedBy { it.title.lowercase() }
+        }
     }
 
     suspend fun get(id: String): Book? = withContext(Dispatchers.IO) {

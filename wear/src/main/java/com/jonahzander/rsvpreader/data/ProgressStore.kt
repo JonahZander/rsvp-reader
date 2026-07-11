@@ -117,13 +117,6 @@ class ProgressStore(private val dataStore: DataStore<Preferences>) {
         }
     }
 
-    suspend fun clearPosition(bookId: String) {
-        dataStore.edit {
-            it.remove(chapterKey(bookId))
-            it.remove(wordKey(bookId))
-        }
-    }
-
     companion object {
         const val DEFAULT_WORD_SIZE = 26
     }

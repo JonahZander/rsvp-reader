@@ -365,6 +365,40 @@ class ReaderSessionTest {
     }
 
     @Test
+    fun `playing again after finishing restarts the chapter`() = runTest {
+        val (session, _) = newHarness()
+        session.togglePlay()
+        advanceTimeBy(1_300) // through both chapters -> finished on "five"
+        assertTrue(session.state.value.finished)
+
+        session.togglePlay()
+        runCurrent()
+        val s = session.state.value
+        assertTrue(s.isPlaying)
+        assertFalse(s.finished)
+        assertEquals("four", s.word) // restarted at the top of the last chapter
+        assertEquals(0, s.wordIndex)
+    }
+
+    @Test
+    fun `wpm adjustment after playback scope cancellation still persists via the save scope`() = runTest {
+        val dsScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val store = ProgressStore(
+            PreferenceDataStoreFactory.create(scope = dsScope) {
+                tmp.newFolder().resolve("p.preferences_pb")
+            }
+        )
+        val playScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val saveScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+        val session = ReaderSession(book, store, playScope, saveScope)
+        runCurrent()
+        playScope.cancel() // what ViewModel clearing does to viewModelScope
+        session.adjustWpm(300)
+        runCurrent()
+        assertEquals(600, store.settings.first().wpm)
+    }
+
+    @Test
     fun `saving position notifies the listener`() = runTest {
         var notified = 0
         val (session, _) = newHarness(onPositionSaved = { notified++ })

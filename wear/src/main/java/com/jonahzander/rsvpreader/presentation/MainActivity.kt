@@ -17,7 +17,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        readLaunchIntent(intent)
+        // Fresh starts only: on recreation (config change, memory pressure)
+        // the nav back stack is restored, and replaying a stale tile intent
+        // would force the reader back on top of it.
+        if (savedInstanceState == null) readLaunchIntent(intent)
         setContent {
             WearApp(
                 app = application as ReaderApplication,

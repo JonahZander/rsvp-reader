@@ -17,8 +17,6 @@ object DataLayerContract {
     const val ACKS_PATH_PREFIX = "/acks/"
 
     const val ASSET_BOOK = "book"
-    const val KEY_TITLE = "title"
-    const val KEY_AUTHOR = "author"
     const val KEY_UPDATED_AT = "updatedAt"
 
     val json = Json { ignoreUnknownKeys = true }
@@ -52,5 +50,10 @@ object DataLayerContract {
 @Serializable
 data class ReaderSettings(
     val wpm: Int = 300,
-    val font: String = "atkinson",
-)
+    val font: String = "default",
+) {
+    companion object {
+        /** Fonts both apps can render; unknown persisted values display as "default". */
+        val FONT_OPTIONS = listOf("default", "serif", "mono")
+    }
+}

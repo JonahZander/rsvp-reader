@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -29,7 +28,11 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.rememberActiveFocusRequester
 import androidx.wear.compose.material.MaterialTheme
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RotaryAccumulator
 import com.jonahzander.rsvpreader.core.RsvpEngine
@@ -43,6 +46,7 @@ import kotlinx.coroutines.withContext
  * no play/pause — the session is used purely as the position holder, saved on
  * every page turn as the first word of the current page.
  */
+@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 fun PagedReader(
     session: ReaderSession,
@@ -54,8 +58,19 @@ fun PagedReader(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val rotary = remember(density) { RotaryAccumulator(thresholdPx = with(density) { 48.dp.toPx() }) }
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // onRotaryScrollEvent only fires on the focused node. Pushed destinations
+    // (Settings, Chapters) keep this reader composed beneath while their own
+    // lists take focus, so a one-shot focus request left the crown dead after
+    // returning; the active-focus requester re-requests whenever this
+    // destination becomes the foreground entry again. Also reclaim focus when
+    // the chrome (menu, seek sheet) closes, in case its controls took it.
+    val focusRequester = rememberActiveFocusRequester()
+    LaunchedEffect(Unit) {
+        snapshotFlow { chromeOpen() }
+            .drop(1)
+            .filter { !it }
+            .collect { focusRequester.requestFocus() }
+    }
 
     // Paged mode has no playback: if the mode was switched mid-play, stop the
     // RSVP clock. Only pause when actually playing, so a fresh session's

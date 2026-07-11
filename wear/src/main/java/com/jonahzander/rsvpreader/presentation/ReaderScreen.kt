@@ -36,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -58,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.rememberActiveFocusRequester
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.jonahzander.rsvpreader.core.RotaryAccumulator
@@ -66,11 +67,15 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private val OrpColor = Color(0xFFE5484D)
@@ -80,6 +85,18 @@ private val OrpLeftShift = 16.dp
 
 /** Horizontal padding around each word in the line (half the inter-word gap). */
 private val WordSpacing = 3.dp
+
+/**
+ * The Line-mode crawl animates in chunks of this many words: one long
+ * constant-velocity animation per chunk instead of one per word (whose
+ * back-to-back tweens left a visible per-word frame seam). Chunks — rather
+ * than a single chapter-length animation — bound the up-front text
+ * measurement (WordPinMetrics measures lazily; a huge chapter would need
+ * every word measured on the UI thread to know the total distance). At
+ * reading speeds a chunk lasts ~40 s and the single-frame seam between
+ * chunks is imperceptible.
+ */
+private const val GlideChunkWords = 200
 
 fun fontFamilyFor(name: String): FontFamily = when (name) {
     "serif" -> FontFamily.Serif
@@ -199,7 +216,7 @@ fun ReaderScreen(
  * to a fixed point; pausing fades the surrounding words in around it, so the
  * transition between reading and browsing never moves the current word.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalWearFoundationApi::class)
 @Composable
 private fun WordLineReader(
     session: ReaderSession,
@@ -213,14 +230,29 @@ private fun WordLineReader(
     val state by session.state.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
-    val focusRequester = remember { FocusRequester() }
+    // onRotaryScrollEvent only fires on the focused node, and pushed
+    // destinations (Settings, Chapters) keep this reader composed BENEATH
+    // them while their own lists take focus — a one-shot
+    // LaunchedEffect(Unit) { requestFocus() } therefore left the crown dead
+    // after returning. rememberActiveFocusRequester hooks into the nav host's
+    // HierarchicalFocusCoordinator and re-requests focus whenever this
+    // destination becomes the foreground entry again — after the dismissed
+    // screen's focused node has left composition, so nothing clears it back.
+    val focusRequester = rememberActiveFocusRequester()
 
     // Keep the screen on only while words are streaming
     LaunchedEffect(state.isPlaying) {
         view.keepScreenOn = state.isPlaying
     }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // In case the chrome's controls ever take focus while the menu or seek
+    // sheet is up, reclaim it whenever the chrome closes.
+    LaunchedEffect(Unit) {
+        snapshotFlow { chromeOpen() }
+            .drop(1)
+            .filter { !it }
+            .collect { focusRequester.requestFocus() }
+    }
 
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -293,12 +325,11 @@ private fun WordLineReader(
     }
 
     // Playback drives the line. RSVP follows the engine clock, snapping each
-    // new word's ORP letter onto the pin. Line mode inverts control: this loop
-    // IS the word clock — it crawls at one constant pixel velocity, advancing
-    // the session as each word's pin crosses the fixed pin point, so
-    // back-to-back animateScrollBy calls chain into one continuous motion with
-    // no tick→recompose seam between words and no lurching at long words or
-    // punctuation.
+    // new word's ORP letter onto the pin. Line mode inverts control: the crawl
+    // IS the word clock — one long constant-velocity animation per chunk of
+    // GlideChunkWords (per-word animateScrollBy calls left a visible frame
+    // seam between consecutive tweens), while a parallel observer advances the
+    // session as each word's pin crosses the fixed pin point.
     LaunchedEffect(state.isPlaying, metrics, glide) {
         if (!state.isPlaying) return@LaunchedEffect
         if (glide) {
@@ -311,48 +342,86 @@ private fun WordLineReader(
             // Establish the starting pin (no-op when resuming from pause; the
             // landing point after a chapter change or external jump).
             listState.pinWord(session.state.value.wordIndex, metrics, orpShiftPx, animate = false)
-            while (true) {
-                val s = session.state.value
-                // A chapter change re-keys chapterWords/metrics; let the
-                // restarted effect take over with fresh geometry.
-                if (!s.isPlaying || s.chapterIndex != chapter) break
-                // Re-derived every word so crown wpm changes rescale the
-                // velocity on the next word. baseMs doubles as the dwell (and
-                // degenerate-chapter fallback): avgDelta / velocity == baseMs.
-                val baseMs = (60_000f / s.wpm).roundToInt().coerceAtLeast(1)
-                val velocity = if (avgDelta > 0f) avgDelta / baseMs else 0f // px per ms
-                val next = s.wordIndex + 1
-                if (next < metrics.size) {
-                    val delta = listState.deltaToPin(next, metrics, orpShiftPx)
-                    if (delta != null) {
-                        val duration = if (velocity > 0f) {
-                            (abs(delta) / velocity).roundToInt().coerceAtLeast(1)
-                        } else {
-                            baseMs
+            coroutineScope {
+                // The word clock: advance the session whenever the crawl
+                // carries the pin into the next word. It only ever catches the
+                // session UP to the pinned word — never past it, never
+                // backwards — so advanceWord (which drives persistence and the
+                // progress ring) cannot double-fire, and it lags the pin by at
+                // most one frame.
+                val wordClock = launch {
+                    snapshotFlow { pinnedWordIndex(listState, metrics, orpShiftPx) }
+                        .collect { pinned ->
+                            while (true) {
+                                val s = session.state.value
+                                if (!s.isPlaying || s.chapterIndex != chapter || s.wordIndex >= pinned) break
+                                if (!session.advanceWord()) break
+                            }
                         }
-                        try {
-                            listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
-                        } catch (e: CancellationException) {
-                            // A competing scroll (gesture, stray settle job)
-                            // stole the ScrollableState mutex, cancelling only
-                            // the animation — rethrow iff the clock coroutine
-                            // itself was cancelled, else retry the word from
-                            // wherever the line now sits.
-                            currentCoroutineContext().ensureActive()
+                }
+                try {
+                    while (true) {
+                        val s = session.state.value
+                        // Pause cancels this effect at the exact position; a
+                        // chapter change re-keys chapterWords/metrics and the
+                        // restarted effect takes over with fresh geometry.
+                        if (!s.isPlaying || s.chapterIndex != chapter) break
+                        // Re-read per chunk and on every wpm restart below.
+                        // baseMs doubles as the dwell (and degenerate-chapter
+                        // fallback): avgDelta / velocity == baseMs.
+                        val baseMs = (60_000f / s.wpm).roundToInt().coerceAtLeast(1)
+                        val velocity = if (avgDelta > 0f) avgDelta / baseMs else 0f // px per ms
+                        val cur = s.wordIndex
+                        if (cur >= metrics.size - 1 || velocity <= 0f) {
+                            // Last word of the chapter (or a degenerate one):
+                            // dwell one average word, then advanceWord crosses
+                            // into the next chapter (or finishes the book).
+                            delay(baseMs.toLong())
+                            if (!session.advanceWord()) break
                             continue
                         }
-                    } else {
-                        // Next word not laid out (external jump left the pin
-                        // far away) — dwell one average word, then snap to it.
-                        delay(baseMs.toLong())
-                        listState.pinWord(next, metrics, orpShiftPx, animate = false)
+                        val correction = listState.deltaToPin(cur, metrics, orpShiftPx)
+                        if (correction == null) {
+                            // Current word not laid out (an external jump left
+                            // the pin far away) — snap to it, then crawl on.
+                            listState.pinWord(cur, metrics, orpShiftPx, animate = false)
+                            continue
+                        }
+                        val end = minOf(cur + GlideChunkWords, metrics.size - 1)
+                        // Measured distance from the current pin to the chunk
+                        // end's pin. The correction term re-anchors any
+                        // measured-vs-laid-out width drift at each chunk
+                        // boundary, so error can't accumulate across chunks.
+                        val delta = correction + metrics.advance(cur, end)
+                        val duration = (abs(delta) / velocity).roundToInt().coerceAtLeast(1)
+                        coroutineScope {
+                            val anim = launch {
+                                try {
+                                    listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
+                                } catch (e: CancellationException) {
+                                    // A competing scroll (gesture, stray settle
+                                    // job) stole the ScrollableState mutex,
+                                    // cancelling only the animation — rethrow
+                                    // iff this coroutine itself was cancelled,
+                                    // else the outer loop retries the chunk
+                                    // from wherever the line now sits.
+                                    currentCoroutineContext().ensureActive()
+                                }
+                            }
+                            // A crown wpm change restarts the crawl from the
+                            // current position at the new velocity — seamless,
+                            // since velocity is the only thing that changes.
+                            val restart = launch {
+                                session.state.map { it.wpm }.distinctUntilChanged().drop(1).first()
+                                anim.cancel()
+                            }
+                            anim.join()
+                            restart.cancel()
+                        }
                     }
-                } else {
-                    // Last word of the chapter: dwell one average word, then
-                    // advanceWord crosses into the next chapter (or finishes).
-                    delay(baseMs.toLong())
+                } finally {
+                    wordClock.cancel()
                 }
-                if (!session.advanceWord()) break
             }
         } else {
             snapshotFlow { state.wordIndex }.collect { index ->
@@ -549,6 +618,7 @@ private class WordPinMetrics(
 ) {
     val size: Int get() = words.size
     private val cache = HashMap<Int, Float>()
+    private val widthCache = HashMap<Int, Float>()
 
     /** X of the ORP letter's center, measured from the item's left edge. */
     fun orpCenter(index: Int): Float = cache.getOrPut(index) {
@@ -568,21 +638,31 @@ private class WordPinMetrics(
     fun averageAdvance(sample: Int = 100): Float {
         val steps = minOf(sample, words.size - 1)
         if (steps <= 0) return 0f
+        return advance(0, steps) / steps
+    }
+
+    /**
+     * Total pin-to-pin distance in pixels from word [from]'s pin to word
+     * [to]'s pin ([from] <= [to] < [size]). Measures (and memoizes) every
+     * word in the range — callers keep ranges bounded (GlideChunkWords) so
+     * on-demand measurement stays off the critical path.
+     */
+    fun advance(from: Int, to: Int): Float {
         var total = 0f
-        for (i in 0 until steps) {
+        for (i in from until to) {
             // Consecutive pins are one item width apart, adjusted for where
             // the ORP letter sits inside each item.
             total += itemWidth(i) - orpCenter(i) + orpCenter(i + 1)
         }
-        return total / steps
+        return total
     }
 
     /** Full item width (text plus horizontal padding) in pixels. */
-    private fun itemWidth(index: Int): Float {
+    private fun itemWidth(index: Int): Float = widthCache.getOrPut(index) {
         val word = words.getOrNull(index).orEmpty()
         val textWidth = if (word.isEmpty()) 0f
         else measurer.measure(AnnotatedString(word), style, maxLines = 1).size.width.toFloat()
-        return textWidth + 2f * itemPaddingPx
+        textWidth + 2f * itemPaddingPx
     }
 }
 

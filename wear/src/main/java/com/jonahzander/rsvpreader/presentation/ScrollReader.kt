@@ -20,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -38,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.rememberActiveFocusRequester
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CompactChip
 import androidx.wear.compose.material.MaterialTheme
@@ -47,6 +48,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 
 /**
  * Scroll mode: the chapter as one vertical column of text that auto-scrolls
@@ -58,6 +60,7 @@ import kotlinx.coroutines.flow.drop
  * sheet (scrolling *is* seeking). The session is used purely as the position
  * holder; the RSVP clock never runs here.
  */
+@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 fun ScrollReader(
     session: ReaderSession,
@@ -70,8 +73,19 @@ fun ScrollReader(
     val view = LocalView.current
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // onRotaryScrollEvent only fires on the focused node. Pushed destinations
+    // (Settings, Chapters) keep this reader composed beneath while their own
+    // lists take focus, so a one-shot focus request left the crown dead after
+    // returning; the active-focus requester re-requests whenever this
+    // destination becomes the foreground entry again. Also reclaim focus when
+    // the chrome (menu) closes, in case its controls took it.
+    val focusRequester = rememberActiveFocusRequester()
+    LaunchedEffect(Unit) {
+        snapshotFlow { chromeOpen() }
+            .drop(1)
+            .filter { !it }
+            .collect { focusRequester.requestFocus() }
+    }
 
     // Scroll mode has no RSVP playback: if the mode was switched mid-play,
     // stop the clock. Only pause when actually playing, so a fresh session's

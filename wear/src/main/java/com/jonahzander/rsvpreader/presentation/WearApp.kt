@@ -3,6 +3,7 @@ package com.jonahzander.rsvpreader.presentation
 import android.app.Activity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,7 +45,11 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     val settings by app.progressStore.settings.collectAsStateWithLifecycle(ReaderSettings())
     val wordSize by app.progressStore.wordSize.collectAsStateWithLifecycle(ProgressStore.DEFAULT_WORD_SIZE)
     val readingModeKey by app.progressStore.readingMode.collectAsStateWithLifecycle(ReadingMode.Rsvp.key)
-    val readingMode = ReadingMode.fromKey(readingModeKey)
+    // Must stay a lazy state read: nav destination lambdas are cached by the
+    // nav graph, so they only see new values through state they read themselves.
+    // An eager `val readingMode = fromKey(...)` here freezes the value inside
+    // the cached destination lambdas (settings chips never re-highlight).
+    val readingMode by remember { derivedStateOf { ReadingMode.fromKey(readingModeKey) } }
 
     var swipeBackEnabled by remember { mutableStateOf(true) }
     val activity = LocalContext.current as? Activity

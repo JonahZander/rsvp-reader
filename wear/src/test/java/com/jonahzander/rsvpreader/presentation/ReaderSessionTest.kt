@@ -177,6 +177,62 @@ class ReaderSessionTest {
     }
 
     @Test
+    fun `external clock plays without the internal clock and advances via advanceWord`() = runTest {
+        val (session, _) = newHarness()
+        session.externalClock = true
+        session.togglePlay()
+        runCurrent()
+        assertTrue(session.state.value.isPlaying)
+
+        // No internal clock: time passing never advances the word.
+        advanceTimeBy(5_000)
+        assertEquals("one", session.state.value.word)
+
+        assertTrue(session.advanceWord())
+        assertEquals("two", session.state.value.word)
+        assertTrue(session.advanceWord())
+        assertEquals("three.", session.state.value.word)
+
+        // Crosses the chapter boundary like the internal clock.
+        assertTrue(session.advanceWord())
+        assertEquals("four", session.state.value.word)
+        assertEquals(1, session.state.value.chapterIndex)
+
+        // Book end pauses and marks finished; advanceWord reports the stop.
+        assertTrue(session.advanceWord())
+        assertFalse(session.advanceWord())
+        assertTrue(session.state.value.finished)
+        assertFalse(session.state.value.isPlaying)
+
+        // Ignored while paused.
+        assertFalse(session.advanceWord())
+        assertEquals("five", session.state.value.word)
+    }
+
+    @Test
+    fun `wpm change under an external clock does not start the internal clock`() = runTest {
+        val (session, _) = newHarness()
+        session.externalClock = true
+        session.togglePlay()
+        session.adjustWpm(300)
+        runCurrent()
+        advanceTimeBy(5_000)
+        assertEquals("one", session.state.value.word)
+        assertEquals(600, session.state.value.wpm)
+    }
+
+    @Test
+    fun `clearing the external clock mid-play hands back to the internal clock`() = runTest {
+        val (session, _) = newHarness()
+        session.externalClock = true
+        session.togglePlay()
+        runCurrent()
+        session.externalClock = false
+        advanceTimeBy(201)
+        assertEquals("two", session.state.value.word)
+    }
+
+    @Test
     fun `wpm adjustment speeds up playback and persists`() = runTest {
         val (session, store) = newHarness()
         session.togglePlay()

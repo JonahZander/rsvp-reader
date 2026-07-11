@@ -52,6 +52,24 @@ class ReaderSession(
 
     private var playJob: Job? = null
 
+    /**
+     * When true, playback marks the session playing but does NOT run the
+     * internal word clock — an external driver (Line mode's glide loop)
+     * advances words via [advanceWord]. Everything else (isPlaying state,
+     * pause, persistence, chapter transitions) behaves identically.
+     */
+    var externalClock: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            if (_state.value.isPlaying) {
+                // Hand the clock over without stopping playback.
+                playJob?.cancel()
+                playJob = null
+                if (!value) startLoop()
+            }
+        }
+
     /** Completed once the saved position/wpm have been applied (or restore failed). */
     private val restored = CompletableDeferred<Unit>()
 
@@ -95,9 +113,9 @@ class ReaderSession(
     }
 
     private fun play() {
-        if (playJob != null) return
+        if (_state.value.isPlaying) return
         _state.value = _state.value.copy(isPlaying = true, finished = false)
-        startLoop()
+        if (!externalClock) startLoop()
     }
 
     private fun startLoop() {
@@ -137,11 +155,21 @@ class ReaderSession(
     fun adjustWpm(delta: Int) {
         val wpm = (_state.value.wpm + delta).coerceIn(MIN_WPM, MAX_WPM)
         _state.value = _state.value.copy(wpm = wpm)
-        if (_state.value.isPlaying) {
+        if (_state.value.isPlaying && !externalClock) {
             playJob?.cancel()
             startLoop()
         }
         scope.launch { progressStore.setWpm(wpm) }
+    }
+
+    /**
+     * Advance one word on behalf of an external clock (see [externalClock]).
+     * Handles chapter transitions and book end exactly like the internal
+     * clock. Returns false when playback stopped (book end or already paused).
+     */
+    fun advanceWord(): Boolean {
+        if (!_state.value.isPlaying) return false
+        return advance()
     }
 
     /** Step through words while paused. */

@@ -53,8 +53,8 @@ fun SettingsScreen(
                 InlineSlider(
                     value = wordSize.toFloat(),
                     onValueChange = { onWordSizeChange(it.roundToInt()) },
-                    valueRange = 20f..36f,
-                    steps = 7, // 2sp increments
+                    valueRange = 12f..36f,
+                    steps = 11, // 2sp increments
                     decreaseIcon = { Text("−") },
                     increaseIcon = { Text("+") },
                     colors = InlineSliderDefaults.colors(),

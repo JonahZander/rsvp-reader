@@ -255,22 +255,54 @@ private fun WordLineReader(
     }
     val flingBehavior = rememberSnapFlingBehavior(listState, snapPosition)
 
-    // Playback drives the line: RSVP snaps each new word's ORP letter onto the
-    // pin instantly; Line mode glides there at a linear pace lasting exactly
-    // that word's RSVP duration, giving a continuous teleprompter crawl.
+    // Line mode drives the word clock itself (one continuous crawl), so the
+    // session must not run its own while this reader owns playback.
+    LaunchedEffect(session, glide) { session.externalClock = glide }
+    DisposableEffect(session) { onDispose { session.externalClock = false } }
+
+    // Playback drives the line. RSVP follows the engine clock, snapping each
+    // new word's ORP letter onto the pin. Line mode inverts control: this loop
+    // IS the word clock — it crawls to the next word's pin over the current
+    // word's RSVP duration and advances the session as each word lands, so
+    // back-to-back animateScrollBy calls chain into one continuous motion with
+    // no tick→recompose seam between words.
     LaunchedEffect(state.isPlaying, metrics, glide) {
-        if (state.isPlaying) {
-            // snapshotFlow conflates: a word missed while a glide is in flight is
-            // skipped, and the next glide simply catches up from wherever it is.
-            snapshotFlow { state.wordIndex }.collect { index ->
-                if (glide) {
-                    val duration = RsvpEngine
-                        .durationMs(chapterWords.getOrElse(index) { "" }, session.state.value.wpm)
-                        .toInt()
-                    listState.glideToWord(index, metrics, orpShiftPx, duration)
+        if (!state.isPlaying) return@LaunchedEffect
+        if (glide) {
+            val chapter = session.state.value.chapterIndex
+            // Establish the starting pin (no-op when resuming from pause; the
+            // landing point after a chapter change or external jump).
+            listState.pinWord(session.state.value.wordIndex, metrics, orpShiftPx, animate = false)
+            while (true) {
+                val s = session.state.value
+                // A chapter change re-keys chapterWords/metrics; let the
+                // restarted effect take over with fresh geometry.
+                if (!s.isPlaying || s.chapterIndex != chapter) break
+                val duration = RsvpEngine
+                    .durationMs(chapterWords.getOrElse(s.wordIndex) { "" }, s.wpm)
+                    .toInt()
+                    .coerceAtLeast(1)
+                val next = s.wordIndex + 1
+                if (next < metrics.size) {
+                    val delta = listState.deltaToPin(next, metrics, orpShiftPx)
+                    if (delta != null) {
+                        listState.animateScrollBy(delta, tween(duration, easing = LinearEasing))
+                    } else {
+                        // Next word not laid out (external jump left the pin
+                        // far away) — dwell for the word, then snap to it.
+                        delay(duration.toLong())
+                        listState.pinWord(next, metrics, orpShiftPx, animate = false)
+                    }
                 } else {
-                    listState.pinWord(index, metrics, orpShiftPx, animate = false)
+                    // Last word of the chapter: dwell for its duration, then
+                    // advanceWord crosses into the next chapter (or finishes).
+                    delay(duration.toLong())
                 }
+                if (!session.advanceWord()) break
+            }
+        } else {
+            snapshotFlow { state.wordIndex }.collect { index ->
+                listState.pinWord(index, metrics, orpShiftPx, animate = false)
             }
         }
     }
@@ -373,6 +405,7 @@ private fun WordLineReader(
             neighborAlpha = neighborAlpha,
             flingBehavior = flingBehavior,
             scrollEnabled = !state.isPlaying,
+            uniform = glide,
         )
 
         if (!state.isPlaying) {
@@ -393,9 +426,11 @@ private fun WordLineReader(
 
 /**
  * The chapter as one continuous line of text. Words clip naturally at the
- * screen edges. The pinned word is always fully visible with its ORP letter
- * highlighted; the surrounding words render at [neighborAlpha] so they can
- * fade away entirely while playing.
+ * screen edges. In RSVP mode the pinned word is always fully visible with its
+ * ORP letter highlighted and the surrounding words render at [neighborAlpha]
+ * so they can fade away entirely while playing. With [uniform] (Line mode)
+ * every word renders identically — no ORP highlight, no neighbor dimming — so
+ * nothing changes color as the line crawls.
  */
 @Composable
 private fun WordLine(
@@ -406,6 +441,7 @@ private fun WordLine(
     neighborAlpha: Float,
     flingBehavior: FlingBehavior,
     scrollEnabled: Boolean,
+    uniform: Boolean,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val sidePadding = maxWidth / 2
@@ -418,7 +454,7 @@ private fun WordLine(
             modifier = Modifier.fillMaxWidth(),
         ) {
             itemsIndexed(words) { index, word ->
-                val pinned = index == pinnedIndex
+                val pinned = !uniform && index == pinnedIndex
                 val text = if (pinned && word.isNotEmpty()) {
                     buildAnnotatedString {
                         append(word)
@@ -432,7 +468,7 @@ private fun WordLine(
                     text = text,
                     maxLines = 1,
                     style = style,
-                    color = if (pinned) MaterialTheme.colors.onBackground
+                    color = if (uniform || pinned) MaterialTheme.colors.onBackground
                     else MaterialTheme.colors.onSurfaceVariant.copy(alpha = 0.6f * neighborAlpha),
                     modifier = Modifier.padding(horizontal = WordSpacing),
                 )
@@ -497,17 +533,3 @@ private suspend fun LazyListState.pinWord(
     if (animate) animateScrollBy(delta) else scrollBy(delta)
 }
 
-/** Glides the word onto the pin over [durationMs] — the teleprompter crawl of Line mode. */
-private suspend fun LazyListState.glideToWord(
-    index: Int,
-    metrics: WordPinMetrics,
-    orpShiftPx: Float,
-    durationMs: Int,
-) {
-    val delta = deltaToPin(index, metrics, orpShiftPx)
-    if (delta == null) {
-        pinWord(index, metrics, orpShiftPx, animate = false)
-        return
-    }
-    animateScrollBy(delta, tween(durationMs.coerceAtLeast(1), easing = LinearEasing))
-}

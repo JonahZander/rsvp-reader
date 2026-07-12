@@ -10,6 +10,14 @@ companion app sends EPUB books, shared articles, or pasted text to the watch.
 Inspired by [rsvpnano](https://github.com/ionutdecebal/rsvpnano) (an ESP32
 reading device); reimplemented from scratch in Kotlin for Wear OS.
 
+## Demo
+
+![RSVP playback at 350 wpm — the red ORP letter stays pinned while words flash](docs/media/rsvp-playback.gif)
+
+| Paused — context fades in around the pinned word | Continue-reading tile |
+|---|---|
+| ![Reader paused with surrounding words visible](docs/media/reader-paused.png) | ![Tile showing last word, book, and chapter](docs/media/tile.png) |
+
 ## Modules
 
 - `:core` — pure Kotlin: RSVP engine (tokenization, per-word timing, ORP),

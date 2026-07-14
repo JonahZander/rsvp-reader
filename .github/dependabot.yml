@@ -10,6 +10,8 @@ updates:
         versions: ["[2.11.0,)"]
       - dependency-name: "androidx.navigation:navigation-compose"
         versions: ["[2.9.8,)"]
+      - dependency-name: "org.jetbrains.kotlin.*"
+        versions: ["[2.4.0,)"]
 
   - package-ecosystem: github-actions
     directory: /

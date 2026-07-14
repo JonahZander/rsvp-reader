@@ -9,7 +9,7 @@ updates:
       - dependency-name: "androidx.lifecycle:*"
         versions: ["[2.10.0,)"]
       - dependency-name: "androidx.navigation:navigation-compose"
-        versions: ["[2.9.8,)"]
+        versions: ["[2.9.0,)"]
       - dependency-name: "org.jetbrains.kotlin.*"
         versions: ["[2.3.0,)"]
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-coroutines-*"
@@ -17,7 +17,7 @@ updates:
       - dependency-name: "androidx.activity:*"
         versions: ["[1.13.0,)"]
       - dependency-name: "androidx.wear.compose:*"
-        versions: ["[1.6.2,)"]
+        versions: ["[1.6.0,)"]
 
   - package-ecosystem: github-actions
     directory: /

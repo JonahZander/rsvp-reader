@@ -16,7 +16,7 @@ navigationCompose = "2.8.4"
 jsoup = "1.18.1"
 epub4j = "4.2.2"
 junit = "4.13.2"
-documentfile = "1.0.1"
+documentfile = "1.1.0"
 kxml2 = "2.3.0"
 
 [libraries]

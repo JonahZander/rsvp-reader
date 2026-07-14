@@ -1,6 +1,6 @@
 package com.jonahzander.rsvpreader.presentation
 
-import android.app.Activity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -58,7 +57,7 @@ fun WearApp(app: ReaderApplication, launchBookId: String? = null, launchNonce: I
     val readingMode by remember { derivedStateOf { ReadingMode.fromKey(readingModeKey) } }
 
     var swipeBackEnabled by remember { mutableStateOf(true) }
-    val activity = LocalContext.current as? Activity
+    val activity = LocalActivity.current
 
     // The reader's paused word line owns horizontal swipes, so it disables
     // swipe-back — but only while the reader is actually the top destination.

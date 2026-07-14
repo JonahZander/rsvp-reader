@@ -7,7 +7,7 @@ updates:
     ignore:
       # These releases require a coordinated Android toolchain upgrade.
       - dependency-name: "androidx.lifecycle:*"
-        versions: ["[2.10.0,)"]
+        versions: ["[2.9.0,)"]
       - dependency-name: "androidx.navigation:navigation-compose"
         versions: ["[2.9.0,)"]
       - dependency-name: "org.jetbrains.kotlin.*"
@@ -15,15 +15,15 @@ updates:
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-coroutines-*"
         versions: ["[1.11.0,)"]
       - dependency-name: "androidx.activity:*"
-        versions: ["[1.12.0,)"]
+        versions: ["[1.11.0,)"]
       - dependency-name: "androidx.wear.compose:*"
         versions: ["[1.6.0,)"]
       - dependency-name: "com.android.*"
-        versions: ["[9.0.0,)"]
+        versions: ["[8.8.0,)"]
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-serialization-*"
         versions: ["[1.11.0,)"]
       - dependency-name: "androidx.compose:compose-bom"
-        versions: ["[2026.0,)"]
+        versions: ["[2025.0,)"]
 
   - package-ecosystem: github-actions
     directory: /

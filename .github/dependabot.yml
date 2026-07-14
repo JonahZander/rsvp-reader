@@ -4,6 +4,12 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      # These releases require a coordinated Android toolchain upgrade.
+      - dependency-name: "androidx.lifecycle:*"
+        versions: ["[2.11.0,)"]
+      - dependency-name: "androidx.navigation:navigation-compose"
+        versions: ["[2.9.8,)"]
 
   - package-ecosystem: github-actions
     directory: /

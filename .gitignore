@@ -4,3 +4,5 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+.claude/
+.DS_Store

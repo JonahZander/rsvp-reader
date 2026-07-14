@@ -73,5 +73,5 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
     // epub4j needs an XmlPullParser implementation; Android provides one, the JVM test runtime does not
-    testImplementation("net.sf.kxml:kxml2:2.3.0")
+    testImplementation(libs.kxml2)
 }

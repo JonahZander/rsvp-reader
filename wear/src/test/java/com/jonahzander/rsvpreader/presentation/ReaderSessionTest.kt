@@ -6,6 +6,7 @@ import com.jonahzander.rsvpreader.core.model.Chapter
 import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.data.ReadingPosition
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -21,6 +22,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ReaderSessionTest {
 
     @get:Rule

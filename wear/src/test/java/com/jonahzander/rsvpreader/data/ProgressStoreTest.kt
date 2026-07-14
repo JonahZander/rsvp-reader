@@ -3,6 +3,7 @@ package com.jonahzander.rsvpreader.data
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.jonahzander.rsvpreader.core.sync.ReaderSettings
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -14,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProgressStoreTest {
 
     @get:Rule

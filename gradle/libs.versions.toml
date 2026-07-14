@@ -17,6 +17,7 @@ jsoup = "1.18.1"
 epub4j = "4.2.2"
 junit = "4.13.2"
 documentfile = "1.0.1"
+kxml2 = "2.3.0"
 
 [libraries]
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
@@ -45,6 +46,7 @@ datastore-preferences = { module = "androidx.datastore:datastore-preferences", v
 datastore-preferences-core = { module = "androidx.datastore:datastore-preferences-core", version.ref = "datastore" }
 play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "playServicesWearable" }
 documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
+kxml2 = { module = "net.sf.kxml:kxml2", version.ref = "kxml2" }
 
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 epub4j-core = { module = "io.documentnode:epub4j-core", version.ref = "epub4j" }

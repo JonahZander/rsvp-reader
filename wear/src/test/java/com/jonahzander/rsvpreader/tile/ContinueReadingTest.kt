@@ -7,6 +7,7 @@ import com.jonahzander.rsvpreader.data.ContinueSnapshot
 import com.jonahzander.rsvpreader.data.ProgressStore
 import com.jonahzander.rsvpreader.data.ReadingPosition
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -17,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ContinueReadingTest {
 
     @get:Rule

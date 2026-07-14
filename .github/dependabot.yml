@@ -18,6 +18,8 @@ updates:
         versions: ["[1.13.0,)"]
       - dependency-name: "androidx.wear.compose:*"
         versions: ["[1.6.0,)"]
+      - dependency-name: "com.android.*"
+        versions: ["[9.0.0,)"]
 
   - package-ecosystem: github-actions
     directory: /

@@ -7,7 +7,7 @@ updates:
     ignore:
       # These releases require a coordinated Android toolchain upgrade.
       - dependency-name: "androidx.lifecycle:*"
-        versions: ["[2.11.0,)"]
+        versions: ["[2.10.0,)"]
       - dependency-name: "androidx.navigation:navigation-compose"
         versions: ["[2.9.8,)"]
       - dependency-name: "org.jetbrains.kotlin.*"
